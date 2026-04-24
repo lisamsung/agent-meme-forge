@@ -10,6 +10,8 @@
 - Skill 文档和 reference 文档已建立。
 - `meme_pack.py` 已实现基础处理流程：梗库、中文文案排版、GIF 生成、微信投稿包导出、manifest 生成。
 - 测试覆盖处理器核心行为和 skill 文档完整性。
+- 已用三组样例验证：24 个科研打工人微信包、16 个码农微信包、18 个都市丽人自用包。
+- 已补微信公众号宣传稿：`docs/wechat-public-account-draft.md`。
 
 ## 开发入口
 

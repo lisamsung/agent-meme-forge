@@ -52,3 +52,8 @@ pytest -q
 ```
 
 See [README.zh-CN.md](README.zh-CN.md) for the full Chinese documentation.
+
+## Docs
+
+- [Example test report](docs/example-test-report.md)
+- [WeChat public-account draft](docs/wechat-public-account-draft.md)

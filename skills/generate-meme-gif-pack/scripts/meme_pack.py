@@ -6,6 +6,7 @@ import json
 import math
 import re
 import shutil
+import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Iterable
@@ -527,9 +528,13 @@ def main(argv: list[str] | None = None) -> int:
         write_default_entries(args.output, args.persona, args.pack_size)
         return 0
     if args.command == "build-pack":
-        entries = load_entries(args.entries) if args.entries else default_entries(args.persona, args.pack_size)
-        build_pack(args.source_dir, args.output_dir, entries, args.mode, args.pack_name, args.style, args.persona, args.author)
-        return 0
+        try:
+            entries = load_entries(args.entries) if args.entries else default_entries(args.persona, args.pack_size)
+            build_pack(args.source_dir, args.output_dir, entries, args.mode, args.pack_name, args.style, args.persona, args.author)
+            return 0
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
     raise AssertionError(args.command)
 
 

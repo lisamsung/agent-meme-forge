@@ -112,3 +112,30 @@ def test_build_pack_writes_named_and_wechat_outputs(tmp_path: Path):
     first_thumb = Image.open(output / "wechat-submit" / "thumbs" / "01.png")
     assert first_thumb.size == (120, 120)
     assert (output / "wechat-submit" / "thumbs" / "01.png").stat().st_size < 50_000
+
+
+def test_cli_reports_clean_error_for_invalid_wechat_size(tmp_path: Path, capsys):
+    meme_pack = load_module()
+    source = make_source_frames(tmp_path, 18)
+    output = tmp_path / "invalid"
+
+    result = meme_pack.main(
+        [
+            "build-pack",
+            "--source-dir",
+            str(source),
+            "--output-dir",
+            str(output),
+            "--persona",
+            "科研打工人",
+            "--pack-size",
+            "18",
+            "--mode",
+            "wechat",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert result == 2
+    assert "16 or 24" in captured.err
+    assert "Traceback" not in captured.err
