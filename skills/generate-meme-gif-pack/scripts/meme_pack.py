@@ -22,6 +22,20 @@ WECHAT_SPEC = {
     "banner": {"size": (750, 400), "max_bytes": 80_000, "format": "PNG"},
 }
 
+GENERATED_DIRS = [
+    Path("named-gifs"),
+    Path("wechat-submit") / "main",
+    Path("wechat-submit") / "thumbs",
+]
+
+GENERATED_FILES = [
+    Path("manifest.json"),
+    Path("manifest.csv"),
+    Path("wechat-submit") / "cover.png",
+    Path("wechat-submit") / "icon.png",
+    Path("wechat-submit") / "banner.png",
+]
+
 FONT_CANDIDATES = [
     "/System/Library/Fonts/Hiragino Sans GB.ttc",
     "/System/Library/Fonts/PingFang.ttc",
@@ -232,6 +246,32 @@ def _wrap_text(text: str, font: ImageFont.ImageFont, max_width: int) -> list[str
     return lines or [""]
 
 
+def _truncate_line_to_width(text: str, font: ImageFont.ImageFont, max_width: int) -> str:
+    ellipsis = "…"
+    if _text_size(text, font)[0] <= max_width:
+        return text
+    if _text_size(ellipsis, font)[0] > max_width:
+        return ""
+    kept = ""
+    for char in text:
+        trial = kept + char + ellipsis
+        if _text_size(trial, font)[0] > max_width:
+            break
+        kept += char
+    return kept + ellipsis
+
+
+def _truncate_lines_to_height(lines: list[str], font: ImageFont.ImageFont, max_width: int, max_height: int) -> list[str]:
+    line_height = max(_text_size(line, font)[1] for line in lines) + 6
+    max_lines = max(1, max_height // line_height)
+    if len(lines) <= max_lines and line_height * len(lines) <= max_height:
+        return lines
+    trimmed = lines[:max_lines]
+    overflow = "".join(lines[max_lines - 1 :])
+    trimmed[-1] = _truncate_line_to_width(overflow, font, max_width)
+    return trimmed
+
+
 def fit_text_lines(
     text: str,
     font_path: str,
@@ -247,7 +287,8 @@ def fit_text_lines(
         if line_height * len(lines) <= max_height and all(_text_size(line, font)[0] <= max_width for line in lines):
             return lines, font
     font = _font(font_path, min_font_size)
-    return _wrap_text(text, font, max_width), font
+    lines = _wrap_text(text, font, max_width)
+    return _truncate_lines_to_height(lines, font, max_width, max_height), font
 
 
 def slug_filename(name: str) -> str:
@@ -387,6 +428,15 @@ def relative_to_output(path: Path, output_dir: Path) -> str:
     return str(path.relative_to(output_dir)).replace("\\", "/")
 
 
+def clean_generated_outputs(output_dir: Path) -> None:
+    for relative_dir in GENERATED_DIRS:
+        shutil.rmtree(output_dir / relative_dir, ignore_errors=True)
+    for relative_file in GENERATED_FILES:
+        path = output_dir / relative_file
+        if path.exists():
+            path.unlink()
+
+
 def build_pack(
     source_dir: Path,
     output_dir: Path,
@@ -398,6 +448,9 @@ def build_pack(
     author: str = "Agent Meme Forge",
 ) -> dict:
     pack_size = validate_pack_size(len(entries), mode)
+    if source_dir.resolve() == output_dir.resolve():
+        raise ValueError("source-dir and output-dir must be different.")
+    clean_generated_outputs(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     named_dir = output_dir / "named-gifs"
     main_dir = output_dir / "wechat-submit" / "main"

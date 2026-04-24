@@ -60,3 +60,13 @@ error: WeChat sticker albums must contain 16 or 24 GIFs; use self_use mode for 1
 - 16 个微信包适合做更轻量、质量更集中的版本。
 - 18 个应定位为自用素材包，不应承诺可直接作为微信表情专辑上传。
 - 当前处理器输出体积余量很大，后续真实 AI 图像输入也有压缩空间。
+
+## Regression Fixes
+
+Review 后补充验证：
+
+- 同一输出目录先生成 24 个微信包、再生成 16 个微信包时，`wechat-submit/main/`、`wechat-submit/thumbs/` 和 `named-gifs/` 会清理旧文件，不再留下 `17.gif` 到 `24.gif`。
+- 超长中文文案会在最小字号下裁成可容纳的行数，并用省略号结尾，避免文字覆盖角色或越出 240x240 画布。
+- GitHub Pages 的中文文档按钮改为 GitHub README 链接，不再解析到站点根目录导致 404。
+
+最新自动化验证：`pytest -q` 共 10 项通过。

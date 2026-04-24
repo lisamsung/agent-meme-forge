@@ -1,4 +1,5 @@
 from pathlib import Path
+from urllib.parse import urljoin
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,3 +32,17 @@ def test_references_cover_wechat_prompt_persona_and_humor():
         assert path.exists(), filename
         text = path.read_text(encoding="utf-8")
         assert len(text) > 300
+
+
+def test_pages_readme_link_stays_inside_project_or_github():
+    text = (ROOT / "docs" / "index.html").read_text(encoding="utf-8")
+    marker = 'href="'
+    links = [part.split('"', 1)[0] for part in text.split(marker)[1:]]
+    readme_links = [link for link in links if "README.zh-CN.md" in link]
+
+    assert readme_links
+    for link in readme_links:
+        resolved = urljoin("https://lisamsung.github.io/agent-meme-forge/", link)
+        assert resolved.startswith("https://lisamsung.github.io/agent-meme-forge/") or resolved.startswith(
+            "https://github.com/lisamsung/agent-meme-forge/"
+        )

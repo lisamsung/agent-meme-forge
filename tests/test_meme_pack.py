@@ -74,6 +74,24 @@ def test_wrap_text_keeps_long_chinese_copy_inside_canvas():
     assert all(lines)
 
 
+def test_wrap_text_truncates_extreme_copy_to_fit_canvas():
+    meme_pack = load_module()
+
+    lines, font = meme_pack.fit_text_lines(
+        "老板我真的在写了只是灵魂还没编译通过而且需求又变了所以我现在只能先假装一切都很合理",
+        font_path=meme_pack.find_default_font(),
+        max_width=214,
+        max_height=76,
+        max_font_size=34,
+        min_font_size=16,
+    )
+    line_height = max(meme_pack._text_size(line, font)[1] for line in lines) + 6
+
+    assert line_height * len(lines) <= 76
+    assert all(meme_pack._text_size(line, font)[0] <= 214 for line in lines)
+    assert lines[-1].endswith("…")
+
+
 def test_build_pack_writes_named_and_wechat_outputs(tmp_path: Path):
     meme_pack = load_module()
     source = make_source_frames(tmp_path, 24)
@@ -112,6 +130,36 @@ def test_build_pack_writes_named_and_wechat_outputs(tmp_path: Path):
     first_thumb = Image.open(output / "wechat-submit" / "thumbs" / "01.png")
     assert first_thumb.size == (120, 120)
     assert (output / "wechat-submit" / "thumbs" / "01.png").stat().st_size < 50_000
+
+
+def test_rebuilding_smaller_pack_cleans_stale_wechat_files(tmp_path: Path):
+    meme_pack = load_module()
+    source = make_source_frames(tmp_path, 24)
+    output = tmp_path / "pack"
+
+    meme_pack.build_pack(
+        source_dir=source,
+        output_dir=output,
+        entries=meme_pack.default_entries("科研打工人", 24),
+        mode="wechat",
+    )
+    meme_pack.build_pack(
+        source_dir=source,
+        output_dir=output,
+        entries=meme_pack.default_entries("码农", 16),
+        mode="wechat",
+    )
+
+    manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+    main_files = sorted((output / "wechat-submit" / "main").glob("*.gif"))
+    thumb_files = sorted((output / "wechat-submit" / "thumbs").glob("*.png"))
+    named_files = sorted((output / "named-gifs").glob("*.gif"))
+
+    assert manifest["pack_size"] == 16
+    assert len(main_files) == 16
+    assert len(thumb_files) == 16
+    assert len(named_files) == 16
+    assert not (output / "wechat-submit" / "main" / "24.gif").exists()
 
 
 def test_cli_reports_clean_error_for_invalid_wechat_size(tmp_path: Path, capsys):

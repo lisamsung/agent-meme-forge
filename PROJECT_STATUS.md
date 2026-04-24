@@ -12,6 +12,8 @@
 - 测试覆盖处理器核心行为和 skill 文档完整性。
 - 已用三组样例验证：24 个科研打工人微信包、16 个码农微信包、18 个都市丽人自用包。
 - 已补微信公众号宣传稿：`docs/wechat-public-account-draft.md`。
+- 已修复 review 发现的问题：重复构建会清理旧上传文件、超长文案会省略并保持在画布内、GitHub Pages 中文文档链接不再 404。
+- GitHub 仓库与 Pages 已发布：`https://github.com/lisamsung/agent-meme-forge` / `https://lisamsung.github.io/agent-meme-forge/`。
 
 ## 开发入口
 
@@ -33,5 +35,4 @@ pytest -q
 
 ## 待确认
 
-- GitHub 远端创建和 Pages 启用取决于本机 GitHub CLI 或 GitHub 插件可用性。
 - 微信规格后续应以官方帮助中心的当前版本复核。
