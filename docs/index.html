@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>agent-meme-forge</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #1d1d1f;
+        --muted: #5f6368;
+        --line: #d9dde3;
+        --paper: #fbfaf7;
+        --panel: #ffffff;
+        --accent: #ff4f64;
+        --green: #1f9d72;
+        --blue: #2563eb;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", sans-serif;
+        color: var(--ink);
+        background: var(--paper);
+      }
+      header {
+        padding: 56px 24px 36px;
+        border-bottom: 1px solid var(--line);
+        background: linear-gradient(180deg, #fff 0%, #fbfaf7 100%);
+      }
+      .wrap {
+        max-width: 1080px;
+        margin: 0 auto;
+      }
+      .eyebrow {
+        color: var(--accent);
+        font-weight: 700;
+        letter-spacing: 0;
+        margin: 0 0 12px;
+      }
+      h1 {
+        margin: 0;
+        font-size: clamp(40px, 7vw, 88px);
+        line-height: 0.95;
+        letter-spacing: 0;
+      }
+      .lead {
+        max-width: 760px;
+        font-size: 22px;
+        line-height: 1.5;
+        color: var(--muted);
+        margin: 24px 0 0;
+      }
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-top: 28px;
+      }
+      a.button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 44px;
+        padding: 0 18px;
+        border-radius: 8px;
+        text-decoration: none;
+        font-weight: 700;
+        color: #fff;
+        background: var(--ink);
+      }
+      a.button.secondary {
+        background: var(--panel);
+        color: var(--ink);
+        border: 1px solid var(--line);
+      }
+      main {
+        padding: 34px 24px 60px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 16px;
+      }
+      section {
+        margin-top: 34px;
+      }
+      h2 {
+        font-size: 24px;
+        margin: 0 0 14px;
+        letter-spacing: 0;
+      }
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 18px;
+        min-height: 156px;
+      }
+      .card h3 {
+        margin: 0 0 8px;
+        font-size: 18px;
+      }
+      .card p,
+      li {
+        color: var(--muted);
+        line-height: 1.6;
+      }
+      code,
+      pre {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+      pre {
+        overflow: auto;
+        background: #15161a;
+        color: #f6f7f9;
+        border-radius: 8px;
+        padding: 18px;
+        line-height: 1.5;
+      }
+      .spec {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+      .pill {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 12px 14px;
+        background: #fff;
+        color: var(--muted);
+      }
+      .pill strong {
+        color: var(--ink);
+      }
+      @media (max-width: 760px) {
+        .grid,
+        .spec {
+          grid-template-columns: 1fr;
+        }
+        .lead {
+          font-size: 18px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="wrap">
+        <p class="eyebrow">Codex Skill · WeChat GIF Sticker Pack</p>
+        <h1>agent-meme-forge</h1>
+        <p class="lead">
+          从一张参考图生成一套真的会被发送的动态表情包。默认 24 个 GIF，适配微信表情开放平台，保留可读中文梗和可上传文件结构。
+        </p>
+        <div class="actions">
+          <a class="button" href="https://github.com/0x0funky/agent-meme-forge">GitHub</a>
+          <a class="button secondary" href="../README.zh-CN.md">中文文档</a>
+        </div>
+      </div>
+    </header>
+    <main>
+      <div class="wrap">
+        <section class="grid" aria-label="features">
+          <div class="card">
+            <h3>梗优先</h3>
+            <p>每个表情都要有明确聊天场景：催进度、假装听懂、组会渡劫、生产别碰、早八索命。</p>
+          </div>
+          <div class="card">
+            <h3>风格化本人</h3>
+            <p>保留发型、脸型、气质和标志特征，但避免高仿真人换脸，更适合公开发布。</p>
+          </div>
+          <div class="card">
+            <h3>微信打包</h3>
+            <p>同时输出人类可读 GIF 名和微信上传所需的数字文件、缩略图、封面、图标、横幅。</p>
+          </div>
+        </section>
+
+        <section>
+          <h2>Quick Start</h2>
+          <pre><code>python3 -m venv .venv
+. .venv/bin/activate
+pip install -e '.[dev]'
+python skills/generate-meme-gif-pack/scripts/meme_pack.py build-pack \
+  --source-dir raw-frames \
+  --output-dir output/my-pack \
+  --persona 科研打工人 \
+  --style clean-sticker \
+  --pack-size 24 \
+  --mode wechat</code></pre>
+        </section>
+
+        <section>
+          <h2>WeChat Defaults</h2>
+          <div class="spec">
+            <div class="pill"><strong>GIF</strong> 240x240, under 500KB</div>
+            <div class="pill"><strong>Thumb</strong> 120x120 PNG, under 50KB</div>
+            <div class="pill"><strong>Icon</strong> 50x50 PNG, transparent</div>
+            <div class="pill"><strong>Cover</strong> 240x240 PNG, transparent</div>
+            <div class="pill"><strong>Banner</strong> 750x400 PNG, no text</div>
+            <div class="pill"><strong>Album</strong> 16 or 24 animated stickers</div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </body>
+</html>
