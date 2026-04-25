@@ -35,6 +35,29 @@ def make_source_frames(tmp_path: Path, count: int = 24) -> Path:
     return source
 
 
+def make_motion_sheets(tmp_path: Path, count: int = 24, layout: str = "1x4") -> Path:
+    meme_pack = load_module()
+    rows, cols = meme_pack.parse_sheet_layout(layout)
+    source = tmp_path / f"source-{layout}"
+    source.mkdir()
+    cell = 96
+    for index in range(count):
+        sheet = Image.new("RGBA", (cols * cell, rows * cell), (255, 255, 255, 255))
+        draw = ImageDraw.Draw(sheet)
+        for frame in range(rows * cols):
+            row = frame // cols
+            col = frame % cols
+            x = col * cell
+            y = row * cell
+            color = ((70 + index * 9 + frame * 35) % 220, (90 + frame * 45) % 220, 180, 255)
+            offset = frame * 6
+            draw.rounded_rectangle((x + 24 + offset // 2, y + 18, x + 72 + offset // 2, y + 72), radius=16, fill=color)
+            draw.ellipse((x + 38 + offset // 2, y + 36, x + 45 + offset // 2, y + 43), fill=(255, 255, 255, 255))
+            draw.ellipse((x + 56 + offset // 2, y + 36, x + 63 + offset // 2, y + 43), fill=(255, 255, 255, 255))
+        sheet.save(source / f"{index + 1:02d}-{layout}.png")
+    return source
+
+
 def test_wechat_pack_size_accepts_only_16_or_24():
     meme_pack = load_module()
 
@@ -76,11 +99,16 @@ def test_plan_pack_builds_direct_text_image_prompts():
     assert len(plan["items"]) == 24
     assert len(plan["image_prompts"]) == 24
     assert any("文献" in item["text"] for item in plan["items"])
+    assert plan["animation"]["source_layout"] == "1x4"
+    assert plan["animation"]["frames_per_sticker"] == 4
 
     first_prompt = plan["image_prompts"][0]["prompt"]
     assert "no text" in first_prompt.lower()
     assert "no speech bubbles" in first_prompt.lower()
     assert "240x240" in first_prompt
+    assert "exactly 4 equal cells in a 1x4 grid" in first_prompt
+    assert "same bounding box" in first_prompt.lower()
+    assert "Frame 1" in first_prompt and "Frame 4" in first_prompt
     assert "Claude-inspired warm geometric AI assistant mascot" in first_prompt
     assert plan["agent_instructions"][0].startswith("Call built-in image_gen")
 
@@ -112,6 +140,7 @@ def test_cli_plan_pack_writes_json(tmp_path: Path):
     assert data["style"] == "pixel-art"
     assert data["pack_size"] == 16
     assert len(data["image_prompts"]) == 16
+    assert data["animation"]["source_layout"] == "1x4"
     assert "BUG" in json.dumps(data["items"], ensure_ascii=False)
 
 
@@ -134,6 +163,46 @@ def test_split_sheet_writes_numbered_transparent_cells(tmp_path: Path):
     assert first.size == (40, 40)
     assert first.getpixel((0, 0))[3] == 0
     assert first.getbbox() is not None
+
+
+def test_load_source_frames_splits_motion_sheet(tmp_path: Path):
+    meme_pack = load_module()
+    source = make_motion_sheets(tmp_path, 1, "1x4")
+
+    frames, kind, layout = meme_pack.load_source_frames(source / "01-1x4.png", source_layout="auto")
+
+    assert len(frames) == 4
+    assert kind == "sheet"
+    assert layout == "1x4"
+    assert frames[0].size == (96, 96)
+
+
+def test_build_pack_uses_motion_sheet_frames_instead_of_bounce(tmp_path: Path):
+    meme_pack = load_module()
+    source = make_motion_sheets(tmp_path, 24, "1x4")
+    output = tmp_path / "pack"
+    entries = meme_pack.default_entries("科研打工人", 24)
+
+    result = meme_pack.build_pack(
+        source_dir=source,
+        output_dir=output,
+        entries=entries,
+        mode="wechat",
+        pack_name="测试多帧表情包",
+        style="clean-sticker",
+        persona="科研打工人",
+        author="Agent Meme Forge",
+        source_layout="auto",
+    )
+
+    first_item = result["items"][0]
+    assert first_item["animation_source"] == "sheet"
+    assert first_item["source_layout"] == "1x4"
+    assert first_item["source_frame_count"] == 4
+
+    gif = Image.open(output / "wechat-submit" / "main" / "01.gif")
+    assert getattr(gif, "is_animated", False)
+    assert gif.n_frames == 4
 
 
 def test_wrap_text_keeps_long_chinese_copy_inside_canvas():

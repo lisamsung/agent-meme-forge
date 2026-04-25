@@ -18,6 +18,7 @@ Infer or ask only when blocked:
 - `pack_size`: WeChat mode only allows 16 or 24. Default to 24.
 - `mode`: `wechat` default, or `self_use`.
 - `tone`: default `职场发疯但安全`.
+- `animation_layout`: default `1x4` motion sheet per sticker; also `2x2` or `2x3` for richer acting.
 
 If the user asks for 18 and wants WeChat upload, explain that WeChat albums use 16 or 24, then default to 24 unless they explicitly switch to `self_use`.
 
@@ -29,7 +30,9 @@ If the user asks for 18 and wants WeChat upload, explain that WeChat albums use 
 - Do not ask the image model to draw Chinese text. The visual prompt must say **no text**, no captions, no speech bubbles, no UI.
 - Write meme copy yourself. Every item needs a concrete sending scenario.
 - Use `scripts/meme_pack.py plan-pack` to write the meme entries, character card, and per-sticker `image_gen` prompts.
-- Use built-in `image_gen` for raw visual frames or frame sheets. Use `scripts/meme_pack.py build-pack` only for deterministic processing.
+- Use built-in `image_gen` for raw no-text motion sheets. Use `scripts/meme_pack.py build-pack` only for deterministic processing.
+- Prefer one semantic motion sheet per sticker, not one static pose. Single-pose sources are allowed only for fast previews or fallback.
+- Motion sheets must use exact grid count, same character identity, same bounding box, same pixel scale, clear margins, no cell-edge crossing, no text, and a solid flat `#FF00FF` background when possible.
 - WeChat output must include numbered upload files and readable named GIF files.
 
 ## Workflow
@@ -48,6 +51,7 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
   --pack-size 24 \
   --mode wechat \
   --pack-name AI科研打工搭子 \
+  --animation-layout 1x4 \
   --output output/ai-research-plan.json
 ```
 
@@ -55,20 +59,22 @@ For a reference image, add `--reference-image path/to/reference.png` and describ
 3. Review the generated plan:
    - `character_card`: identity traits, silhouette, color anchors, expression range, forbidden drift.
    - `items`: meme names, captions, keywords, use scenes, motion hints.
-   - `image_prompts`: one prompt per sticker for `image_gen`.
+   - `animation`: sheet layout and frame count, default `1x4`.
+   - `image_prompts`: one motion-sheet prompt per sticker for `image_gen`.
 4. Plan 24 entries:
    - 12 common high-frequency chat reactions.
    - 8 persona-specific jokes.
    - 4 reusable filler reactions.
 5. Generate raw images:
    - Call built-in `image_gen` with the generated `image_prompts`.
-   - Prefer one clean no-text pose image per sticker, or a short 4-6 frame no-text sequence when the model can keep consistency.
-   - For a fast first pass, one 4x6 contact sheet is acceptable; split it with `split-sheet` before `build-pack`.
-   - Use transparent or solid simple background if possible; avoid clutter because the final canvas is 240x240.
-   - If doing a fast sample, generate the first 6 prompts, QC the character and style, then continue to all 24.
+   - Default quality path: one `1x4` no-text motion sheet per sticker.
+   - Each sheet frame should be a real acting beat: start, action, peak reaction, loopable settle.
+   - For a fast first pass only, one 4x6 contact sheet of static poses is acceptable; split it with `split-sheet` before `build-pack`.
+   - Use the prompt's solid flat `#FF00FF` background if possible; the processor removes it locally.
+   - Generate and QC the first 3 motion sheets before continuing to all 24.
 6. Build the pack:
 
-Optional contact-sheet split:
+Optional static contact-sheet split for previews:
 
 ```bash
 python skills/generate-meme-gif-pack/scripts/meme_pack.py split-sheet \
@@ -86,10 +92,12 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py build-pack \
   --style clean-sticker \
   --pack-size 24 \
   --mode wechat \
-  --pack-name 我的表情包
+  --pack-name 我的表情包 \
+  --source-layout 1x4
 ```
 
 7. QC before returning:
+   - For motion-sheet packs, inspect `manifest.json`: `animation_source` should be `sheet`, `source_layout` should match the plan, and `source_frame_count` should be greater than 1.
    - Open several GIFs and verify the face/character still reads at 240px.
    - Check every main GIF is 240x240 and below 500KB.
    - Check thumbnails are 120x120 and below 50KB.

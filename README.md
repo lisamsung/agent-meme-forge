@@ -8,7 +8,7 @@ The product rule is simple: if nobody would send the sticker in chat, it is not 
 
 ## What It Builds
 
-- A prompt plan with a character card, sendable meme list, and per-sticker `image_gen` prompts.
+- A prompt plan with a character card, sendable meme list, and per-sticker no-text `1x4` motion-sheet `image_gen` prompts.
 - A 16/24 item animated GIF sticker album for WeChat Sticker Open Platform.
 - Human-readable GIF names in `named-gifs/`.
 - Upload-safe numbered files in `wechat-submit/`.
@@ -41,10 +41,11 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
   --style clean-sticker \
   --pack-size 24 \
   --mode wechat \
+  --animation-layout 1x4 \
   --output output/ai-research-plan.json
 ```
 
-Save accepted raw images into `raw-frames/`. If you generated a 4x6 contact sheet, split it first:
+Save accepted raw `1x4` motion sheets into `raw-frames/`. Static 4x6 contact sheets are useful only for previews; split them first if you use that lower-quality path:
 
 ```bash
 python skills/generate-meme-gif-pack/scripts/meme_pack.py split-sheet \
@@ -64,7 +65,8 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py build-pack \
   --style clean-sticker \
   --pack-size 24 \
   --mode wechat \
-  --pack-name 我的表情包
+  --pack-name 我的表情包 \
+  --source-layout 1x4
 ```
 
 ## Test

@@ -16,7 +16,8 @@
 ## 功能
 
 - 从一张真人、头像、IP 形象、角色参考图，或纯文字角色概念生成风格化表情包。
-- 先生成角色卡、梗条目和逐条 `image_gen` 提示词，再用本地脚本统一加中文、做 GIF 和微信打包。
+- 先生成角色卡、梗条目和逐条 `image_gen` 动作 sheet 提示词，再用本地脚本统一加中文、做 GIF 和微信打包。
+- 默认高质量路径是每个表情一张 `1x4` motion sheet，处理器按真实动作帧输出 GIF；单张静态图只作为快速预览 fallback。
 - 可选风格：`clean-sticker`、`pixel-art`、`chibi`、`retro-msn`、`office-cartoon`、`hand-drawn`。
 - 可选人设：`科研打工人`、`都市丽人`、`打工仔`、`码农`、`学生`、`研究僧`、`早八特困生`、`甲方幸存者`、`会议受害者`、`ddl祭司`。
 - 自动规划 24 个表情：12 个高频聊天通用梗、8 个垂直人设梗、4 个补位万能梗。
@@ -60,6 +61,7 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
   --pack-size 24 \
   --mode wechat \
   --pack-name AI科研打工搭子 \
+  --animation-layout 1x4 \
   --output output/ai-research-plan.json
 ```
 
@@ -67,15 +69,16 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
 
 - `character_card`：角色设定卡。
 - `items`：24 个表情名、文案、关键词、发送场景。
-- `image_prompts`：24 条可直接交给 Codex `image_gen` 的无文字生图提示词。
+- `animation`：默认 `1x4`，每个表情 4 个动作帧。
+- `image_prompts`：24 条可直接交给 Codex `image_gen` 的无文字动作 sheet 提示词。
 
 ### 2. 调用 image_gen 生成无文字原图
 
-把每条 `image_prompts[].prompt` 交给 Codex 内置 `image_gen`。原图要保存到一个目录，例如 `raw-frames/01.png ... 24.png`。
+把每条 `image_prompts[].prompt` 交给 Codex 内置 `image_gen`。默认会要求生成一张 `1x4` 动作 sheet，例如 `raw-frames/01-收到离线-1x4.png ... 24-你说得对-1x4.png`。
 
-质量不行就重生：角色太小、画了文字、像官方 logo、表情不够强、道具太细、看不出发送场景，都应该退回。
+质量不行就重生：角色太小、画了文字、像官方 logo、表情不够强、道具太细、看不出发送场景、网格数量不对、前后帧角色比例乱跳、道具出格，都应该退回。
 
-如果为了快速试效果，先让 `image_gen` 生成一张 `4x6` contact sheet，可以切成 24 张原图：
+如果为了快速试效果，先让 `image_gen` 生成一张 `4x6` 静态 contact sheet，可以切成 24 张单姿态原图。注意这只是预览路径，最终质量不如每个表情单独 `1x4` motion sheet：
 
 ```bash
 python skills/generate-meme-gif-pack/scripts/meme_pack.py split-sheet \
@@ -95,8 +98,11 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py build-pack \
   --style clean-sticker \
   --pack-size 24 \
   --mode wechat \
-  --pack-name 我的表情包
+  --pack-name 我的表情包 \
+  --source-layout 1x4
 ```
+
+如果你只有单张静态姿态图，可以把 `--source-layout` 改成 `single`，处理器会退回轻微 bounce 动态；但这不是推荐的最终效果。
 
 列出可用选项：
 
@@ -122,6 +128,7 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
   --style pixel-art \
   --pack-size 16 \
   --mode wechat \
+  --animation-layout 1x4 \
   --output output/coder-mascot-plan.json
 ```
 
@@ -142,7 +149,7 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
 pytest -q
 ```
 
-当前测试覆盖：微信数量约束、默认梗库、prompt 计划生成、中文文案排版、完整投稿包结构、skill 文档和 reference 文件完整性。
+当前测试覆盖：微信数量约束、默认梗库、motion-sheet prompt 计划生成、sheet 切帧、中文文案排版、完整投稿包结构、skill 文档和 reference 文件完整性。
 
 ## 文档产物
 

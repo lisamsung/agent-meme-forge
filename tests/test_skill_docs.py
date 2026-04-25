@@ -18,6 +18,8 @@ def test_skill_frontmatter_and_hard_rules_are_present():
     assert "meme_pack.py" in text
     assert "text_concept" in text
     assert "image_gen" in text
+    assert "motion sheet" in text
+    assert "--source-layout" in text
 
 
 def test_references_cover_wechat_prompt_persona_and_humor():
@@ -43,6 +45,8 @@ def test_prompt_rules_support_direct_text_generation():
     assert "image_gen" in text
     assert "no official logo" in text
     assert "240x240" in text
+    assert "same bounding box" in text
+    assert "1x4" in text
 
 
 def test_pages_readme_link_stays_inside_project_or_github():

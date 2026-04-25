@@ -71,6 +71,16 @@ HARD_IMAGE_RULES = (
     "no labels, no watermark, no official logo, no brand mark, no UI, no speech bubbles"
 )
 
+SHEET_LAYOUTS = {
+    "1x4": (1, 4),
+    "2x2": (2, 2),
+    "2x3": (2, 3),
+    "3x3": (3, 3),
+    "4x4": (4, 4),
+}
+
+DEFAULT_ANIMATION_LAYOUT = "1x4"
+
 
 @dataclass(frozen=True)
 class MemeEntry:
@@ -227,6 +237,97 @@ def persona_prompt(persona: str) -> str:
     return PERSONA_PROMPT_CUES.get(persona, PERSONA_PROMPT_CUES["科研打工人"])
 
 
+def parse_sheet_layout(layout: str) -> tuple[int, int]:
+    if layout not in SHEET_LAYOUTS:
+        raise ValueError(f"Unsupported sheet layout '{layout}'. Use one of: {', '.join(sorted(SHEET_LAYOUTS))}.")
+    return SHEET_LAYOUTS[layout]
+
+
+def animation_frames_for_entry(entry: MemeEntry, frame_count: int = 4) -> list[str]:
+    motion = entry.motion.lower()
+    name = entry.name
+    if any(token in motion for token in ["paper pile", "scroll", "document", "literature"]):
+        frames = [
+            f"{name}: character notices one small paper stack, worried eyes",
+            f"{name}: paper stack grows quickly around the character",
+            f"{name}: character is half buried, eyes wide and panicked",
+            f"{name}: character pops back up exhausted, loopable return pose",
+        ]
+    elif any(token in motion for token in ["typing", "terminal", "compile", "keyboard"]):
+        frames = [
+            f"{name}: character freezes at the keyboard before starting",
+            f"{name}: frantic typing begins, hands slightly blurred",
+            f"{name}: peak panic typing with sweat and screen glow",
+            f"{name}: tiny exhausted pause, still loopable back to frame 1",
+        ]
+    elif any(token in motion for token in ["shake", "tremble", "wobble", "panic"]):
+        frames = [
+            f"{name}: character holds a tense neutral pose",
+            f"{name}: character shakes slightly to the left",
+            f"{name}: character shakes harder to the right with sweat",
+            f"{name}: character snaps back to tense center, loopable",
+        ]
+    elif any(token in motion for token in ["nod", "understand", "blink"]):
+        frames = [
+            f"{name}: character stares blankly, eyes open",
+            f"{name}: character blinks slowly",
+            f"{name}: character gives a tiny uncertain nod",
+            f"{name}: character returns to blank stare, loopable",
+        ]
+    elif any(token in motion for token in ["recoil", "jump", "hit", "swoop"]):
+        frames = [
+            f"{name}: character sees the problem approaching",
+            f"{name}: character recoils backward with wide eyes",
+            f"{name}: peak exaggerated impact pose",
+            f"{name}: character settles back while still shocked",
+        ]
+    elif any(token in motion for token in ["droop", "flatline", "data", "chart"]):
+        frames = [
+            f"{name}: character holds a chart hopefully",
+            f"{name}: chart line starts falling",
+            f"{name}: chart droops or flatlines, character deflates",
+            f"{name}: character stares at the result in silence",
+        ]
+    elif any(token in motion for token in ["summon", "glow", "sparkle", "ritual"]):
+        frames = [
+            f"{name}: small glow appears near the character",
+            f"{name}: glow expands and character notices",
+            f"{name}: peak summon or ritual panic pose",
+            f"{name}: glow fades while character remains stressed",
+        ]
+    elif any(token in motion for token in ["fade", "sleep", "ghost"]):
+        frames = [
+            f"{name}: character sits normally but tired",
+            f"{name}: character starts sinking or fading",
+            f"{name}: character is mostly mentally gone",
+            f"{name}: character returns faintly for a loopable beat",
+        ]
+    else:
+        frames = [
+            f"{name}: readable starting expression",
+            f"{name}: action starts, body language changes clearly",
+            f"{name}: peak exaggerated reaction pose",
+            f"{name}: settle pose that loops back cleanly",
+        ]
+    if frame_count <= len(frames):
+        return frames[:frame_count]
+    return frames + [frames[-1]] * (frame_count - len(frames))
+
+
+def sheet_prompt_rules(layout: str) -> str:
+    rows, cols = parse_sheet_layout(layout)
+    cells = rows * cols
+    return (
+        f"Motion sheet rules: exactly {cells} equal cells in a {layout} grid "
+        f"({rows} row{'s' if rows != 1 else ''}, {cols} column{'s' if cols != 1 else ''}), reading left-to-right and top-to-bottom. "
+        "No borders, no separator lines, no panel frames, no numbers. "
+        "Same character identity, same outfit cues, same color anchors, same bounding box, and same pixel scale in every cell. "
+        "The entire subject and any prop or effect must fit fully inside each cell with clear margin; nothing may cross a cell edge. "
+        "Use a 100% solid flat #FF00FF magenta background for clean local chroma-key removal. "
+        "No gradients in the background."
+    )
+
+
 def build_character_card(subject: str, style: str, reference_image: str | None = None) -> str:
     subject = subject.strip()
     if not subject and not reference_image:
@@ -258,10 +359,14 @@ def image_prompt_for_entry(
     style: str,
     character_card: str,
     tone: str,
+    animation_layout: str = DEFAULT_ANIMATION_LAYOUT,
 ) -> dict:
     caption = entry.text.replace("\n", " / ")
+    rows, cols = parse_sheet_layout(animation_layout)
+    frame_plan = animation_frames_for_entry(entry, rows * cols)
+    frame_lines = "\n".join(f"Frame {frame_index}: {description}" for frame_index, description in enumerate(frame_plan, start=1))
     prompt = (
-        "Create one raw no-text image for a Chinese WeChat animated meme GIF sticker pack.\n"
+        "Create one raw no-text motion sheet for a Chinese WeChat animated meme GIF sticker pack.\n"
         f"Character card: {character_card}\n"
         f"Subject reminder: {subject.strip() or 'uploaded reference character'}.\n"
         f"Visual style: {style_prompt(style)}.\n"
@@ -269,6 +374,8 @@ def image_prompt_for_entry(
         f"Meme item {index:02d}: {entry.name}. Chat send scenario: {entry.scene}. "
         f"The final Chinese caption will be added later by a local processor as \"{caption}\"; do not draw any text.\n"
         f"Acting direction: exaggerated readable reaction, {entry.motion}; make the emotion understandable before the caption is added.\n"
+        f"{sheet_prompt_rules(animation_layout)}\n"
+        f"Frame-by-frame acting plan:\n{frame_lines}\n"
         f"Tone: {tone}; funny, slightly unhinged, but safe for public WeChat review.\n"
         "Composition: one character only, centered, full character or large bust visible, oversized readable face, crisp silhouette, "
         "simple transparent-friendly background, no clutter, no tiny joke-critical props, high contrast, designed to read at 240x240.\n"
@@ -280,7 +387,9 @@ def image_prompt_for_entry(
         "caption": entry.text,
         "scene": entry.scene,
         "motion": entry.motion,
-        "raw_image_filename": f"{index:02d}-{slug_filename(entry.name)}.png",
+        "animation_layout": animation_layout,
+        "frames": frame_plan,
+        "raw_image_filename": f"{index:02d}-{slug_filename(entry.name)}-{animation_layout}.png",
         "prompt": prompt,
     }
 
@@ -294,12 +403,14 @@ def plan_pack(
     tone: str = "职场发疯但安全",
     reference_image: str | None = None,
     pack_name: str = "Agent Meme Pack",
+    animation_layout: str = DEFAULT_ANIMATION_LAYOUT,
 ) -> dict:
     validate_pack_size(pack_size, mode)
+    parse_sheet_layout(animation_layout)
     entries = default_entries(persona, pack_size)
     character_card = build_character_card(subject, style, reference_image)
     prompts = [
-        image_prompt_for_entry(entry, index, subject, persona, style, character_card, tone)
+        image_prompt_for_entry(entry, index, subject, persona, style, character_card, tone, animation_layout)
         for index, entry in enumerate(entries, start=1)
     ]
     return {
@@ -313,20 +424,25 @@ def plan_pack(
         "mode": mode,
         "tone": tone,
         "character_card": character_card,
+        "animation": {
+            "source_layout": animation_layout,
+            "frames_per_sticker": parse_sheet_layout(animation_layout)[0] * parse_sheet_layout(animation_layout)[1],
+            "rules": sheet_prompt_rules(animation_layout),
+        },
         "items": [asdict(entry) for entry in entries],
         "image_prompts": prompts,
         "agent_instructions": [
-            "Call built-in image_gen once per image_prompt, or generate a small first-pass sample from the first 6 prompts before committing to all 24.",
+            "Call built-in image_gen once per image_prompt to generate one no-text motion sheet per sticker, or generate a small first-pass sample from the first 3 prompts before committing to all 24.",
             "Save raw generated no-text images using raw_image_filename under a source directory such as output/raw-frames/<pack-slug>/.",
-            "Reject and regenerate any raw image that contains text, speech bubbles, official logos, brand marks, a tiny face, or a character that drifts from the character card.",
-            "After raw images are accepted, run meme_pack.py build-pack with the same persona, style, pack_size, mode, and pack_name.",
+            "Reject and regenerate any raw sheet that contains text, speech bubbles, official logos, brand marks, wrong grid count, a tiny face, edge-crossing props, or a character that drifts from the character card.",
+            f"After raw sheets are accepted, run meme_pack.py build-pack with --source-layout {animation_layout} plus the same persona, style, pack_size, mode, and pack_name.",
         ],
         "processor_command": (
             "python skills/generate-meme-gif-pack/scripts/meme_pack.py build-pack "
             "--source-dir output/raw-frames/<pack-slug> "
             "--output-dir output/<pack-slug> "
             f"--persona {persona} --style {style} --pack-size {pack_size} --mode {mode} "
-            f"--pack-name {pack_name}"
+            f"--pack-name {pack_name} --source-layout {animation_layout}"
         ),
     }
 
@@ -454,6 +570,72 @@ def load_image(path: Path) -> Image.Image:
     return image.convert("RGBA")
 
 
+def infer_sheet_layout(path: Path, image: Image.Image, source_layout: str = "auto") -> str:
+    if source_layout == "single":
+        return "single"
+    if source_layout != "auto":
+        parse_sheet_layout(source_layout)
+        return source_layout
+    lowered = path.stem.lower()
+    for layout in sorted(SHEET_LAYOUTS, key=len, reverse=True):
+        if re.search(rf"(^|[-_]){re.escape(layout)}($|[-_])", lowered):
+            return layout
+    ratio = image.width / image.height if image.height else 1
+    if ratio >= 3.3:
+        return "1x4"
+    if 1.35 <= ratio <= 1.75:
+        return "2x3"
+    return "single"
+
+
+def split_sheet_frames(image: Image.Image, layout: str) -> list[Image.Image]:
+    rows, cols = parse_sheet_layout(layout)
+    frames: list[Image.Image] = []
+    for row in range(rows):
+        for col in range(cols):
+            left = image.width * col // cols
+            upper = image.height * row // rows
+            right = image.width * (col + 1) // cols
+            lower = image.height * (row + 1) // rows
+            frames.append(image.crop((left, upper, right, lower)).convert("RGBA"))
+    return frames
+
+
+def remove_chroma_background(image: Image.Image, color: tuple[int, int, int] = (255, 0, 255), tolerance: int = 18) -> Image.Image:
+    rgba = image.convert("RGBA")
+    pixels = []
+    source_pixels = rgba.get_flattened_data() if hasattr(rgba, "get_flattened_data") else rgba.getdata()
+    target_red, target_green, target_blue = color
+    for red, green, blue, alpha in source_pixels:
+        if (
+            alpha
+            and abs(red - target_red) <= tolerance
+            and abs(green - target_green) <= tolerance
+            and abs(blue - target_blue) <= tolerance
+        ):
+            pixels.append((red, green, blue, 0))
+        else:
+            pixels.append((red, green, blue, alpha))
+    rgba.putdata(pixels)
+    return rgba
+
+
+def clean_generated_frame_background(image: Image.Image) -> Image.Image:
+    return remove_light_background(remove_chroma_background(image))
+
+
+def load_source_frames(path: Path, source_layout: str = "auto") -> tuple[list[Image.Image], str, str]:
+    image = Image.open(path)
+    if getattr(image, "is_animated", False):
+        frames = [clean_generated_frame_background(frame.convert("RGBA")) for frame in ImageSequence.Iterator(image)]
+        return frames or [load_image(path)], "animated_gif", "gif"
+    rgba = image.convert("RGBA")
+    layout = infer_sheet_layout(path, rgba, source_layout)
+    if layout == "single":
+        return [clean_generated_frame_background(rgba)], "single", "single"
+    return [clean_generated_frame_background(frame) for frame in split_sheet_frames(rgba, layout)], "sheet", layout
+
+
 def contain(image: Image.Image, size: tuple[int, int], margin: int = 18) -> Image.Image:
     canvas = Image.new("RGBA", size, (0, 0, 0, 0))
     image = image.copy()
@@ -491,6 +673,13 @@ def animated_frames(base: Image.Image, text: str, font_path: str, frame_count: i
         canvas = Image.new("RGBA", (240, 240), (0, 0, 0, 0))
         canvas.alpha_composite(subject, ((240 - subject.width) // 2, (240 - subject.height) // 2 + shift_y))
         frames.append(draw_caption(canvas, text, font_path))
+    return frames
+
+
+def caption_source_frames(raw_frames: list[Image.Image], text: str, font_path: str) -> list[Image.Image]:
+    frames: list[Image.Image] = []
+    for raw in raw_frames:
+        frames.append(draw_caption(contain(raw, WECHAT_SPEC["main"]["size"], margin=22), text, font_path))
     return frames
 
 
@@ -624,6 +813,7 @@ def build_pack(
     style: str = "clean-sticker",
     persona: str = "科研打工人",
     author: str = "Agent Meme Forge",
+    source_layout: str = "auto",
 ) -> dict:
     pack_size = validate_pack_size(len(entries), mode)
     if source_dir.resolve() == output_dir.resolve():
@@ -644,10 +834,15 @@ def build_pack(
 
     for index, entry in enumerate(entries, start=1):
         image_path = image_paths[(index - 1) % len(image_paths)]
-        raw = load_image(image_path)
+        raw_frames, animation_source, detected_layout = load_source_frames(image_path, source_layout)
+        raw = raw_frames[0]
         cached_sources.append(raw)
-        base = contain(raw, WECHAT_SPEC["main"]["size"], margin=22)
-        frames = animated_frames(base, entry.text, font_path)
+        if len(raw_frames) > 1:
+            frames = caption_source_frames(raw_frames, entry.text, font_path)
+        else:
+            base = contain(raw, WECHAT_SPEC["main"]["size"], margin=22)
+            frames = animated_frames(base, entry.text, font_path)
+            animation_source = "single_bounce"
 
         named_slug = ensure_unique_name(entry.name, used_names)
         named_gif = named_dir / f"{named_slug}.gif"
@@ -668,6 +863,9 @@ def build_pack(
                 "scene": entry.scene,
                 "motion": entry.motion,
                 "source": str(image_path),
+                "animation_source": animation_source,
+                "source_layout": detected_layout,
+                "source_frame_count": len(raw_frames),
                 "wechat_gif": relative_to_output(numbered_gif, output_dir),
                 "named_gif": relative_to_output(named_gif, output_dir),
                 "thumbnail": relative_to_output(thumb_path, output_dir),
@@ -707,7 +905,21 @@ def build_pack(
     with (output_dir / "manifest.csv").open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(
             handle,
-            fieldnames=["index", "name", "keyword", "text", "scene", "wechat_gif", "named_gif", "thumbnail", "gif_bytes", "thumb_bytes"],
+            fieldnames=[
+                "index",
+                "name",
+                "keyword",
+                "text",
+                "scene",
+                "animation_source",
+                "source_layout",
+                "source_frame_count",
+                "wechat_gif",
+                "named_gif",
+                "thumbnail",
+                "gif_bytes",
+                "thumb_bytes",
+            ],
         )
         writer.writeheader()
         for item in manifest_items:
@@ -737,6 +949,8 @@ def cmd_list_options() -> None:
                 "personas": sorted(PERSONA_ENTRIES),
                 "styles": sorted(STYLE_PROMPTS),
                 "input_modes": ["reference_image", "text_concept"],
+                "animation_layouts": sorted(SHEET_LAYOUTS),
+                "source_layouts": ["auto", "single", *sorted(SHEET_LAYOUTS)],
                 "wechat_pack_sizes": [16, 24],
                 "self_use_pack_sizes": [18],
             },
@@ -766,6 +980,7 @@ def main(argv: list[str] | None = None) -> int:
     plan_parser.add_argument("--mode", default="wechat", choices=["wechat", "self_use"])
     plan_parser.add_argument("--tone", default="职场发疯但安全")
     plan_parser.add_argument("--pack-name", default="Agent Meme Pack")
+    plan_parser.add_argument("--animation-layout", default=DEFAULT_ANIMATION_LAYOUT, choices=sorted(SHEET_LAYOUTS))
     plan_parser.add_argument("--output", required=True, type=Path)
 
     split_parser = sub.add_parser("split-sheet", help="Split an image_gen contact sheet into numbered source PNGs.")
@@ -785,6 +1000,11 @@ def main(argv: list[str] | None = None) -> int:
     build_parser.add_argument("--persona", default="科研打工人")
     build_parser.add_argument("--author", default="Agent Meme Forge")
     build_parser.add_argument("--pack-size", type=int, default=24)
+    build_parser.add_argument(
+        "--source-layout",
+        default="auto",
+        help="How to read source images: auto, single, or an explicit sheet layout such as 1x4, 2x2, 2x3.",
+    )
 
     args = parser.parse_args(argv)
     if args.command == "list-options":
@@ -804,6 +1024,7 @@ def main(argv: list[str] | None = None) -> int:
                 tone=args.tone,
                 reference_image=args.reference_image or None,
                 pack_name=args.pack_name,
+                animation_layout=args.animation_layout,
             )
             write_plan(args.output, plan)
             return 0
@@ -821,7 +1042,17 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "build-pack":
         try:
             entries = load_entries(args.entries) if args.entries else default_entries(args.persona, args.pack_size)
-            build_pack(args.source_dir, args.output_dir, entries, args.mode, args.pack_name, args.style, args.persona, args.author)
+            build_pack(
+                args.source_dir,
+                args.output_dir,
+                entries,
+                args.mode,
+                args.pack_name,
+                args.style,
+                args.persona,
+                args.author,
+                args.source_layout,
+            )
             return 0
         except ValueError as exc:
             print(f"error: {exc}", file=sys.stderr)
