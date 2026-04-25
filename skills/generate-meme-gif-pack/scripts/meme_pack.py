@@ -557,8 +557,13 @@ def plan_pack(
         },
         "items": [asdict(entry) for entry in entries],
         "image_prompts": prompts,
+        "requires_agent_tooling": {
+            "image_generation_tool": "image_gen",
+            "local_processor": "scripts/meme_pack.py",
+            "tool_boundary": "The local processor cannot generate images. The Codex agent must invoke image_gen when the user requested actual sticker generation.",
+        },
         "agent_instructions": [
-            "Call built-in image_gen for the first 3 image_prompts before committing to all 24; save each raw no-text motion sheet exactly as raw_image_filename.",
+            "MUST call built-in image_gen for the first 3 image_prompts before committing to all 24 when the current agent session exposes an image generation tool. Do not stop after writing the plan or tell the user to call image_gen manually unless the tool is unavailable. Save each raw no-text motion sheet exactly as raw_image_filename.",
             f"Run meme_pack.py qc-sheet --source-layout {animation_layout} --quality-mode {quality_mode} on those first 3 sheets and regenerate any fail or weak warning using regenerate_hint.",
             "After the first 3 sheets pass QC, call image_gen once per remaining image_prompt to generate one no-text motion sheet per sticker.",
             "Save raw generated no-text images using raw_image_filename under a source directory such as output/raw-frames/<pack-slug>/.",

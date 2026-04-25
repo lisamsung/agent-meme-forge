@@ -33,6 +33,9 @@ If the user asks for 18 and wants WeChat upload, explain that WeChat albums use 
 
 ## Agent Rules
 
+- Critical orchestration rule: if the user asked to actually generate a sticker pack and this Codex session exposes an image generation tool, the agent MUST call built-in `image_gen` after creating/reviewing the plan; do not stop after `plan-pack` or `plan-wizard` with only prompts unless the image tool is unavailable.
+- `image-2` or `gpt-image-2` is the image model/backend name in some contexts; inside Codex the callable tool is `image_gen`. The script cannot call that tool by itself.
+- If `image_gen` is unavailable in the session, say that generation is blocked by missing image tooling and return the plan JSON plus exact prompts to run elsewhere.
 - Make the character stylized but recognizable: preserve hair, face shape, posture, vibe, and signature details when a reference image exists; for `text_concept`, create an original mascot or character from the concept without copying official logos or exact copyrighted characters.
 - Require the user to own or have permission for the reference image when the image depicts a real person.
 - Keep humor safe for public WeChat review: no politics, hate, sexual content, slurs, doxxing, medical claims, or direct harassment.
@@ -83,12 +86,14 @@ For a reference image, add `--reference-image path/to/reference.png` and describ
    - `items`: meme names, captions, keywords, use scenes, motion hints.
    - `animation`: sheet layout and frame count, default `2x4` / 8 frames.
    - `image_prompts`: one motion-sheet prompt per sticker for `image_gen`.
+   - `requires_agent_tooling`: confirms `image_gen` is required for actual generation.
 4. Plan 24 entries:
    - 12 common high-frequency chat reactions.
    - 8 persona-specific jokes.
    - 4 reusable filler reactions.
 5. Generate and QC raw images:
-   - Call built-in `image_gen` for the first 3 generated `image_prompts`, not all 24 at once.
+   - MUST call built-in `image_gen` for the first 3 generated `image_prompts`, not all 24 at once, when the tool is available.
+   - Do not stop after writing the plan; the plan is only an intermediate artifact.
    - Default quality path: one `2x4` no-text motion sheet per sticker.
    - Each sheet frame should be a real acting beat: start, anticipation, action, escalation, peak reaction, rebound, settle, loopable return.
    - For a fast first pass only, one 4x6 contact sheet of static poses is acceptable; split it with `split-sheet` before `build-pack`.

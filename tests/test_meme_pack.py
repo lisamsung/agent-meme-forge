@@ -164,7 +164,9 @@ def test_plan_pack_builds_direct_text_image_prompts():
     assert "checkerboard" in first_prompt_plan["qc_acceptance"]
     assert first_prompt_plan["regenerate_hint"]
     assert plan["quality_mode"] == "submission"
-    assert plan["agent_instructions"][0].startswith("Call built-in image_gen")
+    assert "MUST call built-in image_gen" in plan["agent_instructions"][0]
+    assert "Do not stop after writing the plan" in plan["agent_instructions"][0]
+    assert plan["requires_agent_tooling"]["image_generation_tool"] == "image_gen"
 
 
 def test_cli_plan_pack_writes_json(tmp_path: Path):

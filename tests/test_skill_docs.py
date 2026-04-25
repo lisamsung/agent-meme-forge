@@ -25,6 +25,8 @@ def test_skill_frontmatter_and_hard_rules_are_present():
     assert "choose" in text.lower() or "ask" in text.lower()
     assert "--quality-mode submission" in text
     assert "--strict-qc" in text
+    assert "MUST call" in text
+    assert "do not stop after" in text
 
 
 def test_references_cover_wechat_prompt_persona_and_humor():

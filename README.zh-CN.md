@@ -66,6 +66,8 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-wizard
 - 选择质量模式：`submission`、`standard`、`preview`。
 - 写出计划 JSON，下一步用里面的 `image_prompts` 调用 `image_gen`。
 
+注意：`plan-wizard` 和 `plan-pack` 只会写计划和提示词，本地 Python 脚本不能自己调用 Codex 的生图工具。如果你是在 Codex agent 里要求“生成表情包”，agent 应该在计划生成后继续调用内置 `image_gen` 生成前 3 张 motion sheet；只有当前会话没有生图工具时，才把 prompts 交给你手动处理。
+
 ### 2. 或者直接生成计划和 image_gen 提示词
 
 有参考图时，把参考图路径放到 `--reference-image`，并用 `--subject` 描述关键特征。

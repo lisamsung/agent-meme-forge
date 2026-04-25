@@ -1,6 +1,6 @@
 # Prompt Rules
 
-The model should produce clean visual material only. Captions are added by the deterministic processor so Chinese text stays readable and consistent. The agent should actively call `image_gen`; the local script plans prompts and postprocesses files, but it does not replace the image model.
+The model should produce clean visual material only. Captions are added by the deterministic processor so Chinese text stays readable and consistent. The agent MUST actively call `image_gen` when the user asked for actual sticker generation; the local script plans prompts and postprocesses files, but it does not replace the image model. Do not stop after plan generation unless image tooling is unavailable.
 
 ## Character Card Prompt
 
