@@ -58,6 +58,9 @@ def test_prompt_rules_support_direct_text_generation():
     assert "2x4" in text
     assert "1x4" in text
     assert "transparent PNG background" in text
+    assert "ChatGPT Images" in text
+    assert "gpt-image-2" in text
+    assert "output_format" in text
     assert "checkerboard" in text
     assert "QC" in text or "qc" in text
     assert "edge" in text

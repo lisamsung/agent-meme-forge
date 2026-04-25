@@ -56,8 +56,10 @@ The high-quality path uses semantic motion sheets, adapted from `generate2dsprit
 - same character identity, same outfit cues, same color anchors, same bounding box, and same pixel scale across frames
 - the entire character, prop, effect, sweat drop, paper stack, chart, laptop, or glow must fit fully inside each cell
 - leave clear margin on all four sides; nothing may cross a cell edge
-- prefer a real transparent PNG background directly from the image model
-- if transparent output is unavailable, use a 100% solid flat `#FF00FF` background so local processing can remove it
+- prefer a real transparent PNG background directly from the image interface when supported
+- ChatGPT Images can be asked for transparent background in the prompt
+- for API models that support transparent output, use an alpha-capable `output_format` such as `png` or `webp` together with `background: "transparent"`
+- `gpt-image-2` does not support true transparent backgrounds, so use a 100% solid flat `#FF00FF` background and let local processing remove it
 - reject fake checkerboard transparency patterns; a checkerboard drawn into the pixels is not a transparent background
 - each frame should be a different acting beat, not a random new illustration
 
@@ -94,7 +96,12 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py qc-sheet \
 
 If `image_gen` only returns a chat attachment, save/export it to a local file before running `accept-generated`; QC and build commands cannot read an unsaved attachment. If QC fails, regenerate with a stricter prompt: larger face, fewer props, more margin, same bounding box, same pixel scale, no checkerboard, transparent PNG or pure `#FF00FF` only.
 
-Transparency note: use true alpha output when the image model or API supports it. As of the current OpenAI image-generation docs, `gpt-image-2` does not support `background: "transparent"`, so `#FF00FF` fallback plus local cleanup is still necessary for that model.
+Transparency note:
+
+- ChatGPT Images can be prompted to make the background transparent, so prefer that path in the ChatGPT UI.
+- API behavior is model-specific. For API models with transparent-background support, request `background: "transparent"` and an alpha-capable `output_format`, normally `png` or `webp`.
+- `gpt-image-2` does not support `background: "transparent"`; for that model, generate a pure white or pure color background, preferably solid `#FF00FF`, then let the local processor remove it.
+- Do not accept visible checkerboard pixels as a transparency substitute.
 
 Default `2x4` acting rhythm:
 

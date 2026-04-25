@@ -112,7 +112,13 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py accept-generated \
 
 如果当前 `image_gen` 只在聊天里返回附件、没有本地路径，先把附件保存到本机，再运行上面的命令；本地处理器不能直接读取未保存的聊天附件。
 
-优先要求透明 PNG 背景；如果当前生图工具无法直接输出透明背景，再用纯色 `#FF00FF` 作为兜底。注意棋盘格不等于透明背景，如果模型把棋盘格画进像素里，也要退回重生。按当前 OpenAI 文档，`gpt-image-2` 不支持 `background: "transparent"`，所以对它仍然需要 `#FF00FF` 兜底。质量不行就重生：角色太小、画了文字、像官方 logo、表情不够强、道具太细、看不出发送场景、网格数量不对、前后帧角色比例乱跳、道具出格、透明边缘有明显红/粉残留，都应该退回。
+优先要求透明 PNG 背景，但要区分工具入口：
+
+- ChatGPT 界面的 ChatGPT Images 可以直接要求“透明背景”，优先试这条路径。
+- API 侧要看具体模型。支持透明背景的 GPT image 模型需要配合 alpha 格式，例如 `background: "transparent"` 加 `output_format: "png"` 或 `webp`。
+- `gpt-image-2` 目前不支持真正透明背景，不能传 `background: "transparent"`；使用它时要生成白色或纯色不透明背景，推荐纯 `#FF00FF`，再由本地处理器抠图。
+
+注意棋盘格不等于透明背景，如果模型把棋盘格画进像素里，也要退回重生。质量不行就重生：角色太小、画了文字、像官方 logo、表情不够强、道具太细、看不出发送场景、网格数量不对、前后帧角色比例乱跳、道具出格、透明边缘有明显红/粉残留，都应该退回。
 
 如果为了快速试效果，先让 `image_gen` 生成一张 `4x6` 静态 contact sheet，可以切成 24 张单姿态原图。注意这只是预览路径，最终质量不如每个表情单独 `2x4` motion sheet：
 

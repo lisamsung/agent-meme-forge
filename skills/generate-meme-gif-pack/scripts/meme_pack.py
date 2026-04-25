@@ -402,8 +402,8 @@ def sheet_prompt_rules(layout: str) -> str:
         "No borders, no separator lines, no panel frames, no numbers. "
         "Same character identity, same outfit cues, same color anchors, same bounding box, and same pixel scale in every cell. "
         "The entire subject and any prop or effect must fit fully inside each cell with clear margin; nothing may cross a cell edge. "
-        "Preferred background: transparent PNG background with no visible backdrop. "
-        "If the image tool cannot output transparency, use a 100% solid flat #FF00FF magenta background for local chroma-key removal. "
+        "Preferred background: real transparent PNG background with no visible backdrop when the current image interface supports transparency. "
+        "If the image tool or API model cannot output true alpha transparency, use a 100% solid flat #FF00FF magenta background for local chroma-key removal. "
         "Never use gradients, shadows, colored washes, textured backgrounds, or fake checkerboard transparency behind the cells."
     )
 
