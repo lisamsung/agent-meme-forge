@@ -28,7 +28,10 @@
       header {
         padding: 56px 24px 36px;
         border-bottom: 1px solid var(--line);
-        background: linear-gradient(180deg, #fff 0%, #fbfaf7 100%);
+        background:
+          linear-gradient(90deg, rgba(255, 255, 255, 0.96) 0%, rgba(255, 255, 255, 0.9) 55%, rgba(255, 255, 255, 0.58) 100%),
+          url("assets/ai-mascot-sheet-preview.jpg") right center / auto 116% no-repeat,
+          #fff;
       }
       .wrap {
         max-width: 1080px;
@@ -135,9 +138,40 @@
       .pill strong {
         color: var(--ink);
       }
+      .showcase {
+        display: grid;
+        grid-template-columns: minmax(0, 1.5fr) minmax(220px, 0.8fr);
+        gap: 20px;
+        align-items: center;
+      }
+      .showcase img {
+        display: block;
+        max-width: 100%;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+      }
+      .showcase p {
+        color: var(--muted);
+        line-height: 1.7;
+        margin: 0 0 14px;
+      }
+      .sample-gif {
+        width: 240px;
+        height: 240px;
+        image-rendering: auto;
+      }
       @media (max-width: 760px) {
+        header {
+          background:
+            linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(255, 255, 255, 0.9) 100%),
+            url("assets/ai-mascot-sheet-preview.jpg") center bottom / 100% auto no-repeat,
+            #fff;
+          padding-bottom: 220px;
+        }
         .grid,
-        .spec {
+        .spec,
+        .showcase {
           grid-template-columns: 1fr;
         }
         .lead {
@@ -152,7 +186,7 @@
         <p class="eyebrow">Codex Skill · WeChat GIF Sticker Pack</p>
         <h1>agent-meme-forge</h1>
         <p class="lead">
-          从一张参考图生成一套真的会被发送的动态表情包。默认 24 个 GIF，适配微信表情开放平台，保留可读中文梗和可上传文件结构。
+          从参考图或纯文字角色概念生成一套真的会被发送的动态表情包。先规划角色卡和 image_gen 提示词，再输出默认 24 个适配微信表情开放平台的 GIF。
         </p>
         <div class="actions">
           <a class="button" href="https://github.com/lisamsung/agent-meme-forge">GitHub</a>
@@ -175,6 +209,24 @@
             <h3>微信打包</h3>
             <p>同时输出人类可读 GIF 名和微信上传所需的数字文件、缩略图、封面、图标、横幅。</p>
           </div>
+          <div class="card">
+            <h3>主动生图</h3>
+            <p>支持 text_concept 直接起角色，自动写 24 条无文字 image_gen 提示词，再统一加中文梗。</p>
+          </div>
+        </section>
+
+        <section class="showcase" aria-label="generated sample">
+          <div>
+            <h2>AI Mascot Sample</h2>
+            <p>
+              这个样例先用 text_concept 生成原创 AI 吉祥物提示词，再调用 image_gen 产出 4x6 姿态表，
+              之后由本地脚本切图、加中文梗、压成微信规格 GIF。
+            </p>
+            <p>
+              视觉形象可以参考熟悉的暖色 AI 助手气质，但输出要求是原创角色，不使用官方 logo 或品牌标识。
+            </p>
+          </div>
+          <img class="sample-gif" src="assets/ai-mascot-wenxianshan.gif" alt="AI mascot meme GIF sample: 文献又长出来了" />
         </section>
 
         <section>
@@ -182,6 +234,22 @@
           <pre><code>python3 -m venv .venv
 . .venv/bin/activate
 pip install -e '.[dev]'
+python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
+  --subject "warm geometric AI assistant mascot with cream body and coral accents, original character, no official logo" \
+  --persona 科研打工人 \
+  --style clean-sticker \
+  --pack-size 24 \
+  --mode wechat \
+  --output output/ai-research-plan.json
+
+# Use the plan's image_prompts with Codex image_gen, save accepted no-text images to raw-frames/.
+# If image_gen returns one 4x6 contact sheet:
+python skills/generate-meme-gif-pack/scripts/meme_pack.py split-sheet \
+  --input output/raw-sheets/ai-research-sheet.png \
+  --output-dir raw-frames \
+  --rows 6 \
+  --cols 4
+
 python skills/generate-meme-gif-pack/scripts/meme_pack.py build-pack \
   --source-dir raw-frames \
   --output-dir output/my-pack \

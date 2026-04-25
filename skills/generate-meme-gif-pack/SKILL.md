@@ -5,13 +5,14 @@ description: Use when the user wants to turn a reference person, mascot, avatar,
 
 # Generate Meme GIF Pack
 
-Create animated Chinese meme GIF packs from one reference image. The core design rule is: a sticker nobody sends is waste. Prioritize repeatable chat-use cases, clear reaction value, and fast readability over decorative polish.
+Create animated Chinese meme GIF packs from either a reference image or a text-only character concept. The core design rule is: a sticker nobody sends is waste. Prioritize repeatable chat-use cases, clear reaction value, and fast readability over decorative polish.
 
 ## Inputs
 
 Infer or ask only when blocked:
 
-- `reference_image`: required uploaded person, mascot, avatar, or character image.
+- `reference_image`: uploaded person, mascot, avatar, or character image. Use `input_mode=reference_image` when present.
+- `subject`: required when no image is uploaded. Use `input_mode=text_concept` for direct text generation, e.g. “warm geometric AI assistant mascot with coral accents, original character, no official logo”.
 - `style`: `clean-sticker` default; also `pixel-art`, `chibi`, `retro-msn`, `office-cartoon`, `hand-drawn`.
 - `persona`: `科研打工人` default; also `都市丽人`, `打工仔`, `码农`, `学生`, `研究僧`, `早八特困生`, `甲方幸存者`, `会议受害者`, `ddl祭司`.
 - `pack_size`: WeChat mode only allows 16 or 24. Default to 24.
@@ -22,12 +23,13 @@ If the user asks for 18 and wants WeChat upload, explain that WeChat albums use 
 
 ## Agent Rules
 
-- Make the character stylized but recognizable: preserve hair, face shape, posture, vibe, and signature details; avoid photorealistic face swaps.
+- Make the character stylized but recognizable: preserve hair, face shape, posture, vibe, and signature details when a reference image exists; for `text_concept`, create an original mascot or character from the concept without copying official logos or exact copyrighted characters.
 - Require the user to own or have permission for the reference image when the image depicts a real person.
 - Keep humor safe for public WeChat review: no politics, hate, sexual content, slurs, doxxing, medical claims, or direct harassment.
 - Do not ask the image model to draw Chinese text. The visual prompt must say **no text**, no captions, no speech bubbles, no UI.
 - Write meme copy yourself. Every item needs a concrete sending scenario.
-- Use built-in `image_gen` for raw visual frames or frame sheets. Use `scripts/meme_pack.py` only for deterministic processing.
+- Use `scripts/meme_pack.py plan-pack` to write the meme entries, character card, and per-sticker `image_gen` prompts.
+- Use built-in `image_gen` for raw visual frames or frame sheets. Use `scripts/meme_pack.py build-pack` only for deterministic processing.
 - WeChat output must include numbered upload files and readable named GIF files.
 
 ## Workflow
@@ -36,16 +38,45 @@ If the user asks for 18 and wants WeChat upload, explain that WeChat albums use 
    - `references/wechat-spec.md` for output constraints.
    - `references/personas.md` and `references/meme-library.md` for pack planning.
    - `references/styles.md` and `references/prompt-rules.md` for visual prompts.
-2. Create a character card from the reference image:
-   - identity traits, silhouette, hair/clothing cues, expression range, forbidden drift.
-3. Plan 24 entries:
+2. Create a plan. For a text-only concept:
+
+```bash
+python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
+  --subject "warm geometric AI assistant mascot with cream body and coral accents, original character, no official logo" \
+  --persona 科研打工人 \
+  --style clean-sticker \
+  --pack-size 24 \
+  --mode wechat \
+  --pack-name AI科研打工搭子 \
+  --output output/ai-research-plan.json
+```
+
+For a reference image, add `--reference-image path/to/reference.png` and describe the key traits in `--subject`.
+3. Review the generated plan:
+   - `character_card`: identity traits, silhouette, color anchors, expression range, forbidden drift.
+   - `items`: meme names, captions, keywords, use scenes, motion hints.
+   - `image_prompts`: one prompt per sticker for `image_gen`.
+4. Plan 24 entries:
    - 12 common high-frequency chat reactions.
    - 8 persona-specific jokes.
    - 4 reusable filler reactions.
-4. Generate raw images:
+5. Generate raw images:
+   - Call built-in `image_gen` with the generated `image_prompts`.
    - Prefer one clean no-text pose image per sticker, or a short 4-6 frame no-text sequence when the model can keep consistency.
+   - For a fast first pass, one 4x6 contact sheet is acceptable; split it with `split-sheet` before `build-pack`.
    - Use transparent or solid simple background if possible; avoid clutter because the final canvas is 240x240.
-5. Build the pack:
+   - If doing a fast sample, generate the first 6 prompts, QC the character and style, then continue to all 24.
+6. Build the pack:
+
+Optional contact-sheet split:
+
+```bash
+python skills/generate-meme-gif-pack/scripts/meme_pack.py split-sheet \
+  --input output/raw-sheets/ai-research-sheet.png \
+  --output-dir raw-frames \
+  --rows 6 \
+  --cols 4
+```
 
 ```bash
 python skills/generate-meme-gif-pack/scripts/meme_pack.py build-pack \
@@ -58,7 +89,7 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py build-pack \
   --pack-name 我的表情包
 ```
 
-6. QC before returning:
+7. QC before returning:
    - Open several GIFs and verify the face/character still reads at 240px.
    - Check every main GIF is 240x240 and below 500KB.
    - Check thumbnails are 120x120 and below 50KB.

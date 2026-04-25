@@ -16,6 +16,8 @@ def test_skill_frontmatter_and_hard_rules_are_present():
     assert "18" in text and "self_use" in text
     assert "no text" in text.lower()
     assert "meme_pack.py" in text
+    assert "text_concept" in text
+    assert "image_gen" in text
 
 
 def test_references_cover_wechat_prompt_persona_and_humor():
@@ -32,6 +34,15 @@ def test_references_cover_wechat_prompt_persona_and_humor():
         assert path.exists(), filename
         text = path.read_text(encoding="utf-8")
         assert len(text) > 300
+
+
+def test_prompt_rules_support_direct_text_generation():
+    text = (REFERENCES / "prompt-rules.md").read_text(encoding="utf-8")
+
+    assert "text_concept" in text
+    assert "image_gen" in text
+    assert "no official logo" in text
+    assert "240x240" in text
 
 
 def test_pages_readme_link_stays_inside_project_or_github():

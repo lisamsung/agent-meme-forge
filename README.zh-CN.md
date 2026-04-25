@@ -15,7 +15,8 @@
 
 ## 功能
 
-- 从一张真人、头像、IP 形象或角色参考图生成风格化表情包。
+- 从一张真人、头像、IP 形象、角色参考图，或纯文字角色概念生成风格化表情包。
+- 先生成角色卡、梗条目和逐条 `image_gen` 提示词，再用本地脚本统一加中文、做 GIF 和微信打包。
 - 可选风格：`clean-sticker`、`pixel-art`、`chibi`、`retro-msn`、`office-cartoon`、`hand-drawn`。
 - 可选人设：`科研打工人`、`都市丽人`、`打工仔`、`码农`、`学生`、`研究僧`、`早八特困生`、`甲方幸存者`、`会议受害者`、`ddl祭司`。
 - 自动规划 24 个表情：12 个高频聊天通用梗、8 个垂直人设梗、4 个补位万能梗。
@@ -37,14 +38,54 @@ pip install -e '.[dev]'
 安装到 Codex skill 目录时，复制整个目录：
 
 ```bash
-cp -R skills/generate-meme-gif-pack ~/.codex/skills/
+mkdir -p ~/.codex-switcher/skills
+cp -R skills/generate-meme-gif-pack ~/.codex-switcher/skills/
 ```
 
 重新打开 Codex session 后，skill 会出现在可用 skill 列表中。
 
 ## 使用
 
-先准备一组无文字角色图或分镜图，放入一个目录，例如 `raw-frames/01.png ... 24.png`。这些图可以由 Codex `image_gen` 根据 skill 的 prompt 规则生成。
+### 1. 先生成计划和 image_gen 提示词
+
+有参考图时，把参考图路径放到 `--reference-image`，并用 `--subject` 描述关键特征。
+
+没有参考图时，也可以直接用文字概念生成，例如做一个 Claude 气质启发、但不复制官方标识的原创 AI 吉祥物：
+
+```bash
+python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
+  --subject "warm geometric AI assistant mascot with cream body and coral accents, friendly abstract face, tiny paper-stack anxiety, original character, no official logo" \
+  --persona 科研打工人 \
+  --style clean-sticker \
+  --pack-size 24 \
+  --mode wechat \
+  --pack-name AI科研打工搭子 \
+  --output output/ai-research-plan.json
+```
+
+打开 `output/ai-research-plan.json`，里面会有：
+
+- `character_card`：角色设定卡。
+- `items`：24 个表情名、文案、关键词、发送场景。
+- `image_prompts`：24 条可直接交给 Codex `image_gen` 的无文字生图提示词。
+
+### 2. 调用 image_gen 生成无文字原图
+
+把每条 `image_prompts[].prompt` 交给 Codex 内置 `image_gen`。原图要保存到一个目录，例如 `raw-frames/01.png ... 24.png`。
+
+质量不行就重生：角色太小、画了文字、像官方 logo、表情不够强、道具太细、看不出发送场景，都应该退回。
+
+如果为了快速试效果，先让 `image_gen` 生成一张 `4x6` contact sheet，可以切成 24 张原图：
+
+```bash
+python skills/generate-meme-gif-pack/scripts/meme_pack.py split-sheet \
+  --input output/raw-sheets/ai-research-sheet.png \
+  --output-dir raw-frames \
+  --rows 6 \
+  --cols 4
+```
+
+### 3. 构建微信 GIF 包
 
 ```bash
 python skills/generate-meme-gif-pack/scripts/meme_pack.py build-pack \
@@ -72,6 +113,18 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py write-default-entries 
   --output entries.json
 ```
 
+只生成 prompt 计划，不打包：
+
+```bash
+python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
+  --subject "round coral AI helper mascot with paper-stack anxiety" \
+  --persona 码农 \
+  --style pixel-art \
+  --pack-size 16 \
+  --mode wechat \
+  --output output/coder-mascot-plan.json
+```
+
 ## 微信规格默认值
 
 - 主图 GIF：`240x240`，小于 `500KB`，默认目标小于 `480KB`。
@@ -89,7 +142,7 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py write-default-entries 
 pytest -q
 ```
 
-当前测试覆盖：微信数量约束、默认梗库、中文文案排版、完整投稿包结构、skill 文档和 reference 文件完整性。
+当前测试覆盖：微信数量约束、默认梗库、prompt 计划生成、中文文案排版、完整投稿包结构、skill 文档和 reference 文件完整性。
 
 ## 文档产物
 

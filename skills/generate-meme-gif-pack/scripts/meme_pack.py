@@ -44,6 +44,33 @@ FONT_CANDIDATES = [
     "/Library/Fonts/Arial Unicode.ttf",
 ]
 
+STYLE_PROMPTS = {
+    "clean-sticker": "clean digital sticker art, crisp dark outline, large readable head, simple color blocks, expressive face, transparent-friendly plain background",
+    "pixel-art": "chunky pixel-art sticker, limited palette, hard square edges, readable silhouette, large shapes that survive 240x240 export",
+    "chibi": "chibi sticker character with oversized head, compact body, strong facial acting, cute but still sarcastic and sendable",
+    "retro-msn": "nostalgic early-internet messenger sticker, glossy avatar charm, simple playful colors, compact readable pose",
+    "office-cartoon": "modern workplace cartoon sticker, vector-like shapes, clean props such as laptop papers coffee or meeting notes",
+    "hand-drawn": "loose hand-drawn marker sticker, expressive imperfect linework, bold contour, energetic but uncluttered",
+}
+
+PERSONA_PROMPT_CUES = {
+    "科研打工人": "papers, literature review, lab mishaps, group meeting pressure, supervisor messages, charts, revision anxiety",
+    "研究僧": "papers, literature review, group meetings, supervisor messages, thesis pressure, significance anxiety",
+    "码农": "bugs, terminal windows, server panic, deploy pressure, requirements changing, logs, compile rituals",
+    "都市丽人": "commute, coffee, elegant collapse, meeting smile, office desk, lipstick or mirror props, after-work revival",
+    "打工仔": "boss messages, overtime, office desk, tiny salary survival, task papers, workplace fake calm",
+    "学生": "early class, homework, exams, library, roll call, GPA panic, cafeteria and vacation countdown",
+    "早八特困生": "alarm clock, sleepy classroom, coffee boot sequence, roll-call alert, notes drifting, bell revival",
+    "甲方幸存者": "revision loops, abstract feedback, low budget, final-version chaos, delivery pressure, polite survival smile",
+    "会议受害者": "mute button, camera anxiety, endless agenda, meeting notes, post-meeting mini meeting, fake understanding",
+    "ddl祭司": "deadline meteor, late-night desk lamp, progress bar ritual, save icon, upload moment, last-minute miracle",
+}
+
+HARD_IMAGE_RULES = (
+    "no text, no words, no Chinese characters, no Latin letters, no captions, "
+    "no labels, no watermark, no official logo, no brand mark, no UI, no speech bubbles"
+)
+
 
 @dataclass(frozen=True)
 class MemeEntry:
@@ -190,6 +217,118 @@ def validate_pack_size(pack_size: int, mode: str) -> int:
     if pack_size <= 0:
         raise ValueError("pack_size must be positive.")
     return pack_size
+
+
+def style_prompt(style: str) -> str:
+    return STYLE_PROMPTS.get(style, STYLE_PROMPTS["clean-sticker"])
+
+
+def persona_prompt(persona: str) -> str:
+    return PERSONA_PROMPT_CUES.get(persona, PERSONA_PROMPT_CUES["科研打工人"])
+
+
+def build_character_card(subject: str, style: str, reference_image: str | None = None) -> str:
+    subject = subject.strip()
+    if not subject and not reference_image:
+        raise ValueError("subject is required when no reference image is provided.")
+    identity_source = (
+        f"uploaded reference image ({reference_image}) plus concept note: {subject or 'preserve the uploaded character'}"
+        if reference_image
+        else f"text_concept: {subject}"
+    )
+    source_rule = (
+        "Preserve the uploaded character's silhouette, hair or head shape, outfit cues, posture, vibe, and signature details."
+        if reference_image
+        else "Create an original character from the text concept; do not copy an official mascot, official logo, brand mark, or exact copyrighted character."
+    )
+    return (
+        f"Identity source: {identity_source}. "
+        f"{source_rule} "
+        f"Style target: {style} ({style_prompt(style)}). "
+        "Keep the same head shape, color anchors, body proportions, line weight, and facial feature logic across all stickers. "
+        "The character must feel like the same sendable chat sticker persona in every image."
+    )
+
+
+def image_prompt_for_entry(
+    entry: MemeEntry,
+    index: int,
+    subject: str,
+    persona: str,
+    style: str,
+    character_card: str,
+    tone: str,
+) -> dict:
+    caption = entry.text.replace("\n", " / ")
+    prompt = (
+        "Create one raw no-text image for a Chinese WeChat animated meme GIF sticker pack.\n"
+        f"Character card: {character_card}\n"
+        f"Subject reminder: {subject.strip() or 'uploaded reference character'}.\n"
+        f"Visual style: {style_prompt(style)}.\n"
+        f"Persona context: {persona}; useful visual cues: {persona_prompt(persona)}.\n"
+        f"Meme item {index:02d}: {entry.name}. Chat send scenario: {entry.scene}. "
+        f"The final Chinese caption will be added later by a local processor as \"{caption}\"; do not draw any text.\n"
+        f"Acting direction: exaggerated readable reaction, {entry.motion}; make the emotion understandable before the caption is added.\n"
+        f"Tone: {tone}; funny, slightly unhinged, but safe for public WeChat review.\n"
+        "Composition: one character only, centered, full character or large bust visible, oversized readable face, crisp silhouette, "
+        "simple transparent-friendly background, no clutter, no tiny joke-critical props, high contrast, designed to read at 240x240.\n"
+        f"Hard negative rules: {HARD_IMAGE_RULES}."
+    )
+    return {
+        "index": index,
+        "name": entry.name,
+        "caption": entry.text,
+        "scene": entry.scene,
+        "motion": entry.motion,
+        "raw_image_filename": f"{index:02d}-{slug_filename(entry.name)}.png",
+        "prompt": prompt,
+    }
+
+
+def plan_pack(
+    subject: str,
+    persona: str = "科研打工人",
+    style: str = "clean-sticker",
+    pack_size: int = 24,
+    mode: str = "wechat",
+    tone: str = "职场发疯但安全",
+    reference_image: str | None = None,
+    pack_name: str = "Agent Meme Pack",
+) -> dict:
+    validate_pack_size(pack_size, mode)
+    entries = default_entries(persona, pack_size)
+    character_card = build_character_card(subject, style, reference_image)
+    prompts = [
+        image_prompt_for_entry(entry, index, subject, persona, style, character_card, tone)
+        for index, entry in enumerate(entries, start=1)
+    ]
+    return {
+        "pack_name": pack_name,
+        "subject": subject.strip(),
+        "input_mode": "reference_image" if reference_image else "text_concept",
+        "reference_image": reference_image or "",
+        "persona": persona,
+        "style": style,
+        "pack_size": pack_size,
+        "mode": mode,
+        "tone": tone,
+        "character_card": character_card,
+        "items": [asdict(entry) for entry in entries],
+        "image_prompts": prompts,
+        "agent_instructions": [
+            "Call built-in image_gen once per image_prompt, or generate a small first-pass sample from the first 6 prompts before committing to all 24.",
+            "Save raw generated no-text images using raw_image_filename under a source directory such as output/raw-frames/<pack-slug>/.",
+            "Reject and regenerate any raw image that contains text, speech bubbles, official logos, brand marks, a tiny face, or a character that drifts from the character card.",
+            "After raw images are accepted, run meme_pack.py build-pack with the same persona, style, pack_size, mode, and pack_name.",
+        ],
+        "processor_command": (
+            "python skills/generate-meme-gif-pack/scripts/meme_pack.py build-pack "
+            "--source-dir output/raw-frames/<pack-slug> "
+            "--output-dir output/<pack-slug> "
+            f"--persona {persona} --style {style} --pack-size {pack_size} --mode {mode} "
+            f"--pack-name {pack_name}"
+        ),
+    }
 
 
 def default_entries(persona: str, pack_size: int = 24) -> list[MemeEntry]:
@@ -404,6 +543,45 @@ def source_images(source_dir: Path) -> list[Path]:
     return paths
 
 
+def remove_light_background(image: Image.Image, threshold: int = 248) -> Image.Image:
+    rgba = image.convert("RGBA")
+    pixels = []
+    source_pixels = rgba.get_flattened_data() if hasattr(rgba, "get_flattened_data") else rgba.getdata()
+    for red, green, blue, alpha in source_pixels:
+        if alpha and red >= threshold and green >= threshold and blue >= threshold:
+            pixels.append((red, green, blue, 0))
+        else:
+            pixels.append((red, green, blue, alpha))
+    rgba.putdata(pixels)
+    return rgba
+
+
+def split_sheet(sheet_path: Path, output_dir: Path, rows: int, cols: int, transparent_light: bool = True) -> list[Path]:
+    if rows <= 0 or cols <= 0:
+        raise ValueError("rows and cols must be positive.")
+    image = Image.open(sheet_path).convert("RGBA")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    for stale in output_dir.glob("*.png"):
+        stale.unlink()
+
+    written: list[Path] = []
+    index = 1
+    for row in range(rows):
+        for col in range(cols):
+            left = image.width * col // cols
+            upper = image.height * row // rows
+            right = image.width * (col + 1) // cols
+            lower = image.height * (row + 1) // rows
+            cell = image.crop((left, upper, right, lower))
+            if transparent_light:
+                cell = remove_light_background(cell)
+            path = output_dir / f"{index:02d}.png"
+            cell.save(path, optimize=True)
+            written.append(path)
+            index += 1
+    return written
+
+
 def make_thumbnail(source: Image.Image, size: tuple[int, int]) -> Image.Image:
     thumb = contain(source, size, margin=max(4, size[0] // 10))
     return thumb
@@ -542,13 +720,30 @@ def write_default_entries(path: Path, persona: str, pack_size: int) -> None:
     path.write_text(json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def write_plan(path: Path, plan: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 def load_entries(path: Path) -> list[MemeEntry]:
     data = json.loads(path.read_text(encoding="utf-8"))
     return [MemeEntry(**item) for item in data]
 
 
 def cmd_list_options() -> None:
-    print(json.dumps({"personas": sorted(PERSONA_ENTRIES), "wechat_pack_sizes": [16, 24], "self_use_pack_sizes": [18]}, ensure_ascii=False, indent=2))
+    print(
+        json.dumps(
+            {
+                "personas": sorted(PERSONA_ENTRIES),
+                "styles": sorted(STYLE_PROMPTS),
+                "input_modes": ["reference_image", "text_concept"],
+                "wechat_pack_sizes": [16, 24],
+                "self_use_pack_sizes": [18],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -561,6 +756,24 @@ def main(argv: list[str] | None = None) -> int:
     entries_parser.add_argument("--persona", default="科研打工人")
     entries_parser.add_argument("--pack-size", type=int, default=24)
     entries_parser.add_argument("--output", required=True, type=Path)
+
+    plan_parser = sub.add_parser("plan-pack", help="Write meme entries plus image_gen prompts for a reference image or text concept.")
+    plan_parser.add_argument("--subject", required=True, help="Reference concept, character note, or text-only mascot description.")
+    plan_parser.add_argument("--reference-image", default="", help="Optional path or label for the uploaded reference image.")
+    plan_parser.add_argument("--persona", default="科研打工人")
+    plan_parser.add_argument("--style", default="clean-sticker")
+    plan_parser.add_argument("--pack-size", type=int, default=24)
+    plan_parser.add_argument("--mode", default="wechat", choices=["wechat", "self_use"])
+    plan_parser.add_argument("--tone", default="职场发疯但安全")
+    plan_parser.add_argument("--pack-name", default="Agent Meme Pack")
+    plan_parser.add_argument("--output", required=True, type=Path)
+
+    split_parser = sub.add_parser("split-sheet", help="Split an image_gen contact sheet into numbered source PNGs.")
+    split_parser.add_argument("--input", required=True, type=Path)
+    split_parser.add_argument("--output-dir", required=True, type=Path)
+    split_parser.add_argument("--rows", required=True, type=int)
+    split_parser.add_argument("--cols", required=True, type=int)
+    split_parser.add_argument("--keep-light-bg", action="store_true", help="Do not turn near-white sheet backgrounds transparent.")
 
     build_parser = sub.add_parser("build-pack", help="Build GIFs, thumbnails, WeChat assets, and manifests.")
     build_parser.add_argument("--source-dir", required=True, type=Path)
@@ -580,6 +793,31 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "write-default-entries":
         write_default_entries(args.output, args.persona, args.pack_size)
         return 0
+    if args.command == "plan-pack":
+        try:
+            plan = plan_pack(
+                subject=args.subject,
+                persona=args.persona,
+                style=args.style,
+                pack_size=args.pack_size,
+                mode=args.mode,
+                tone=args.tone,
+                reference_image=args.reference_image or None,
+                pack_name=args.pack_name,
+            )
+            write_plan(args.output, plan)
+            return 0
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+    if args.command == "split-sheet":
+        try:
+            files = split_sheet(args.input, args.output_dir, args.rows, args.cols, transparent_light=not args.keep_light_bg)
+            print(json.dumps({"count": len(files), "files": [str(path) for path in files]}, ensure_ascii=False, indent=2))
+            return 0
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
     if args.command == "build-pack":
         try:
             entries = load_entries(args.entries) if args.entries else default_entries(args.persona, args.pack_size)

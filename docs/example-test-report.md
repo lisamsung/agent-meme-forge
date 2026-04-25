@@ -1,6 +1,6 @@
 # Example Test Report
 
-本报告记录 `agent-meme-forge` 在本机用合成参考图跑出的几个端到端样例。样例图只用于验证处理流程，不代表最终 AI 生成质量。
+本报告记录 `agent-meme-forge` 在本机跑出的端到端样例。前三组使用合成参考图验证处理器；新增 AI 吉祥物样例使用真实 `image_gen` contact sheet 验证“提示词计划 -> 生图 -> 切图 -> 微信打包”链路。
 
 ## Test Environment
 
@@ -16,6 +16,17 @@
 | 科研打工人 24 微信包 | `wechat` | `clean-sticker` | `科研打工人` | 24 | 29,427 | 24 | 4,310 | 7,631 / 1,837 / 20,625 |
 | 码农 16 微信包 | `wechat` | `pixel-art` | `码农` | 16 | 27,744 | 16 | 4,120 | 7,589 / 1,758 / 20,945 |
 | 都市丽人 18 自用包 | `self_use` | `office-cartoon` | `都市丽人` | 18 | 30,295 | 18 | 4,545 | 8,162 / 1,680 / 23,008 |
+| AI 吉祥物 24 微信包 | `wechat` | `clean-sticker` | `科研打工人` | 24 | 72,653 | 24 | 17,132 | 30,124 / 2,579 / 29,238 |
+
+## ImageGen Sample
+
+- Plan: `output/examples/ai-research-mascot-plan.json`
+- Raw sheet: `output/raw-sheets/ai-research-mascot-sheet.png`
+- Split sources: `output/sample-sources/ai-mascot/01.png ... 24.png`
+- WeChat package: `output/examples/ai-mascot-24/`
+- Published preview assets: `docs/assets/ai-mascot-sheet-preview.jpg` and `docs/assets/ai-mascot-wenxianshan.gif`
+
+The sample subject is an original warm cream-and-coral AI assistant mascot. It is only inspired by familiar AI-assistant aesthetics and explicitly avoids official logos, brand marks, and exact mascot copying.
 
 ## Positive Results
 
@@ -69,4 +80,4 @@ Review 后补充验证：
 - 超长中文文案会在最小字号下裁成可容纳的行数，并用省略号结尾，避免文字覆盖角色或越出 240x240 画布。
 - GitHub Pages 的中文文档按钮改为 GitHub README 链接，不再解析到站点根目录导致 404。
 
-最新自动化验证：`pytest -q` 共 10 项通过。
+最新自动化验证：`pytest -q` 共 14 项通过。

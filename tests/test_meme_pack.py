@@ -57,6 +57,85 @@ def test_default_entries_include_persona_specific_memes():
     assert all(entry.name and entry.keyword and entry.scene for entry in entries)
 
 
+def test_plan_pack_builds_direct_text_image_prompts():
+    meme_pack = load_module()
+
+    plan = meme_pack.plan_pack(
+        subject="Claude-inspired warm geometric AI assistant mascot, original character, no official logo",
+        persona="科研打工人",
+        style="clean-sticker",
+        pack_size=24,
+        mode="wechat",
+        tone="职场发疯但安全",
+    )
+
+    assert plan["subject"].startswith("Claude-inspired")
+    assert plan["input_mode"] == "text_concept"
+    assert plan["pack_size"] == 24
+    assert "character_card" in plan
+    assert len(plan["items"]) == 24
+    assert len(plan["image_prompts"]) == 24
+    assert any("文献" in item["text"] for item in plan["items"])
+
+    first_prompt = plan["image_prompts"][0]["prompt"]
+    assert "no text" in first_prompt.lower()
+    assert "no speech bubbles" in first_prompt.lower()
+    assert "240x240" in first_prompt
+    assert "Claude-inspired warm geometric AI assistant mascot" in first_prompt
+    assert plan["agent_instructions"][0].startswith("Call built-in image_gen")
+
+
+def test_cli_plan_pack_writes_json(tmp_path: Path):
+    meme_pack = load_module()
+    output = tmp_path / "plan.json"
+
+    result = meme_pack.main(
+        [
+            "plan-pack",
+            "--subject",
+            "round coral AI helper mascot with paper-stack anxiety",
+            "--persona",
+            "码农",
+            "--style",
+            "pixel-art",
+            "--pack-size",
+            "16",
+            "--mode",
+            "wechat",
+            "--output",
+            str(output),
+        ]
+    )
+
+    data = json.loads(output.read_text(encoding="utf-8"))
+    assert result == 0
+    assert data["style"] == "pixel-art"
+    assert data["pack_size"] == 16
+    assert len(data["image_prompts"]) == 16
+    assert "BUG" in json.dumps(data["items"], ensure_ascii=False)
+
+
+def test_split_sheet_writes_numbered_transparent_cells(tmp_path: Path):
+    meme_pack = load_module()
+    sheet = Image.new("RGBA", (80, 80), (255, 255, 255, 255))
+    draw = ImageDraw.Draw(sheet)
+    colors = [(255, 80, 80, 255), (80, 255, 80, 255), (80, 80, 255, 255), (255, 180, 80, 255)]
+    boxes = [(10, 10, 30, 30), (50, 10, 70, 30), (10, 50, 30, 70), (50, 50, 70, 70)]
+    for color, box in zip(colors, boxes):
+        draw.rectangle(box, fill=color)
+    sheet_path = tmp_path / "sheet.png"
+    sheet.save(sheet_path)
+
+    written = meme_pack.split_sheet(sheet_path, tmp_path / "cells", rows=2, cols=2, transparent_light=True)
+
+    assert len(written) == 4
+    assert written[0].name == "01.png"
+    first = Image.open(written[0]).convert("RGBA")
+    assert first.size == (40, 40)
+    assert first.getpixel((0, 0))[3] == 0
+    assert first.getbbox() is not None
+
+
 def test_wrap_text_keeps_long_chinese_copy_inside_canvas():
     meme_pack = load_module()
 
