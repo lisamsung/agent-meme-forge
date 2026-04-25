@@ -1529,11 +1529,151 @@ def cmd_list_options() -> None:
     )
 
 
+def _prompt_text(
+    label: str,
+    default: str = "",
+    required: bool = False,
+    input_fn=input,
+) -> str:
+    suffix = f" [{default}]" if default else ""
+    while True:
+        value = input_fn(f"{label}{suffix}: ").strip()
+        if value:
+            return value
+        if default:
+            return default
+        if not required:
+            return ""
+        print("This field is required.", file=sys.stderr)
+
+
+def _prompt_choice(
+    label: str,
+    options: list[str],
+    default_index: int = 0,
+    input_fn=input,
+    print_fn=print,
+) -> str:
+    print_fn(label)
+    for index, option in enumerate(options, start=1):
+        marker = " (default)" if index - 1 == default_index else ""
+        print_fn(f"  {index}. {option}{marker}")
+    while True:
+        raw = input_fn(f"Choose 1-{len(options)} [{default_index + 1}]: ").strip()
+        if not raw:
+            return options[default_index]
+        if raw in options:
+            return raw
+        if raw.isdigit() and 1 <= int(raw) <= len(options):
+            return options[int(raw) - 1]
+        print_fn(f"Invalid choice: {raw}")
+
+
+def run_plan_wizard(input_fn=input, print_fn=print) -> dict:
+    print_fn("Agent Meme Forge interactive plan wizard")
+    print_fn("This wizard only writes the plan JSON. Generate the first 3 raw sheets with image_gen, then run qc-sheet.")
+    input_mode = _prompt_choice(
+        "Step 1: choose the character source",
+        ["text_concept", "reference_image"],
+        default_index=0,
+        input_fn=input_fn,
+        print_fn=print_fn,
+    )
+    reference_image: str | None = None
+    if input_mode == "reference_image":
+        reference_image = _prompt_text("Reference image path or uploaded-image label", required=True, input_fn=input_fn)
+        subject = _prompt_text(
+            "Describe key traits to preserve",
+            default="preserve the uploaded character",
+            input_fn=input_fn,
+        )
+    else:
+        subject = _prompt_text(
+            "Describe the original character or mascot",
+            default="warm geometric AI assistant mascot with cream body and coral accents, original character, no official logo",
+            required=True,
+            input_fn=input_fn,
+        )
+
+    persona = _prompt_choice(
+        "Step 2: choose scene/persona",
+        list(PERSONA_ENTRIES),
+        default_index=0,
+        input_fn=input_fn,
+        print_fn=print_fn,
+    )
+    style = _prompt_choice(
+        "Step 3: choose visual style",
+        list(STYLE_PROMPTS),
+        default_index=0,
+        input_fn=input_fn,
+        print_fn=print_fn,
+    )
+    mode = _prompt_choice(
+        "Step 4: choose output mode",
+        ["wechat", "self_use"],
+        default_index=0,
+        input_fn=input_fn,
+        print_fn=print_fn,
+    )
+    if mode == "wechat":
+        pack_size = int(_prompt_choice("Step 5: choose WeChat pack size", ["24", "16"], 0, input_fn, print_fn))
+    else:
+        pack_size = int(_prompt_text("Step 5: self-use sticker count", default="18", input_fn=input_fn))
+
+    quality_mode = _prompt_choice(
+        "Step 6: choose quality mode",
+        ["submission", "standard", "preview"],
+        default_index=0,
+        input_fn=input_fn,
+        print_fn=print_fn,
+    )
+    if quality_mode == "submission":
+        animation_layout = _prompt_choice(
+            "Step 7: choose animation layout",
+            ["2x4"],
+            default_index=0,
+            input_fn=input_fn,
+            print_fn=print_fn,
+        )
+    else:
+        animation_layout = _prompt_choice(
+            "Step 7: choose animation layout",
+            [DEFAULT_ANIMATION_LAYOUT, "1x4", "1x8", "2x2", "2x3"],
+            default_index=0,
+            input_fn=input_fn,
+            print_fn=print_fn,
+        )
+
+    pack_name = _prompt_text("Step 8: pack name", default="Agent Meme Pack", input_fn=input_fn)
+    tone = _prompt_text("Step 9: humor tone", default="职场发疯但安全", input_fn=input_fn)
+    output = Path(_prompt_text("Step 10: output plan JSON path", default="output/meme-plan.json", input_fn=input_fn))
+    plan = plan_pack(
+        subject=subject,
+        persona=persona,
+        style=style,
+        pack_size=pack_size,
+        mode=mode,
+        tone=tone,
+        reference_image=reference_image,
+        pack_name=pack_name,
+        animation_layout=animation_layout,
+        quality_mode=quality_mode,
+    )
+    write_plan(output, plan)
+    print_fn(f"Plan written: {output}")
+    print_fn("Next: 先生成前 3 张 image_gen motion sheets, run qc-sheet, then continue with the remaining sheets.")
+    print_fn(plan["processor_command"])
+    return plan
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Build WeChat-ready animated meme GIF packs.")
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("list-options", help="Print supported personas and pack sizes.")
+
+    sub.add_parser("plan-wizard", help="Interactively choose image source, scene/persona, style, pack size, and quality mode.")
 
     entries_parser = sub.add_parser("write-default-entries", help="Write a default meme entry manifest.")
     entries_parser.add_argument("--persona", default="科研打工人")
@@ -1592,6 +1732,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "list-options":
         cmd_list_options()
         return 0
+    if args.command == "plan-wizard":
+        try:
+            run_plan_wizard()
+            return 0
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
     if args.command == "write-default-entries":
         write_default_entries(args.output, args.persona, args.pack_size)
         return 0

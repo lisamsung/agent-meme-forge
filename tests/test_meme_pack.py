@@ -199,6 +199,73 @@ def test_cli_plan_pack_writes_json(tmp_path: Path):
     assert "BUG" in json.dumps(data["items"], ensure_ascii=False)
 
 
+def test_plan_wizard_collects_text_concept_choices(tmp_path: Path):
+    meme_pack = load_module()
+    output = tmp_path / "wizard-plan.json"
+    answers = iter(
+        [
+            "1",  # text_concept
+            "warm cat scientist mascot, original character, no official logo",
+            "3",  # 码农
+            "2",  # pixel-art
+            "1",  # wechat
+            "2",  # 16
+            "1",  # submission
+            "",  # forced/default 2x4
+            "猫猫码农包",
+            "",  # default tone
+            str(output),
+        ]
+    )
+    messages: list[str] = []
+
+    plan = meme_pack.run_plan_wizard(input_fn=lambda _prompt: next(answers), print_fn=messages.append)
+
+    assert output.exists()
+    assert plan["input_mode"] == "text_concept"
+    assert plan["subject"].startswith("warm cat scientist")
+    assert plan["persona"] == "码农"
+    assert plan["style"] == "pixel-art"
+    assert plan["pack_size"] == 16
+    assert plan["quality_mode"] == "submission"
+    assert plan["animation"]["source_layout"] == "2x4"
+    assert any("先生成前 3 张" in message for message in messages)
+
+
+def test_plan_wizard_collects_reference_image_choices(tmp_path: Path):
+    meme_pack = load_module()
+    output = tmp_path / "reference-plan.json"
+    reference = tmp_path / "person.png"
+    reference.write_bytes(b"placeholder")
+    answers = iter(
+        [
+            "2",  # reference_image
+            str(reference),
+            "短发戴眼镜，笑起来很像实验室组会幸存者",
+            "1",  # 科研打工人
+            "1",  # clean-sticker
+            "2",  # self_use
+            "",  # default 18
+            "3",  # preview
+            "2",  # 1x4
+            "我的测试包",
+            "轻微发疯但安全",
+            str(output),
+        ]
+    )
+
+    plan = meme_pack.run_plan_wizard(input_fn=lambda _prompt: next(answers), print_fn=lambda _message: None)
+
+    assert output.exists()
+    assert plan["input_mode"] == "reference_image"
+    assert plan["reference_image"] == str(reference)
+    assert plan["subject"] == "短发戴眼镜，笑起来很像实验室组会幸存者"
+    assert plan["mode"] == "self_use"
+    assert plan["pack_size"] == 18
+    assert plan["quality_mode"] == "preview"
+    assert plan["animation"]["source_layout"] == "1x4"
+
+
 def test_split_sheet_writes_numbered_transparent_cells(tmp_path: Path):
     meme_pack = load_module()
     sheet = Image.new("RGBA", (80, 80), (255, 255, 255, 255))

@@ -9,7 +9,15 @@ Create animated Chinese meme GIF packs from either a reference image or a text-o
 
 ## Inputs
 
-Infer or ask only when blocked:
+Start with a short intake when the user has not already specified the choices. Ask whether they want to upload/use a reference image or create from text, then ask for scene/persona, visual style, pack size, and quality mode. Do not silently default past these choices when the user expects interaction.
+
+For terminal users, `plan-wizard` provides the same guided intake:
+
+```bash
+python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-wizard
+```
+
+Infer only after the user gives a minimal request such as “做科研打工人表情包” and clearly wants the agent to proceed:
 
 - `reference_image`: uploaded person, mascot, avatar, or character image. Use `input_mode=reference_image` when present.
 - `subject`: required when no image is uploaded. Use `input_mode=text_concept` for direct text generation, e.g. “warm geometric AI assistant mascot with coral accents, original character, no official logo”.
@@ -30,7 +38,9 @@ If the user asks for 18 and wants WeChat upload, explain that WeChat albums use 
 - Keep humor safe for public WeChat review: no politics, hate, sexual content, slurs, doxxing, medical claims, or direct harassment.
 - Do not ask the image model to draw Chinese text. The visual prompt must say **no text**, no captions, no speech bubbles, no UI.
 - Write meme copy yourself. Every item needs a concrete sending scenario.
+- If the user has not provided choices, ask the intake questions explicitly: reference image or text concept, persona/scene, style, WeChat or self-use, count, and quality mode.
 - Use `scripts/meme_pack.py plan-pack` to write the meme entries, character card, and per-sticker `image_gen` prompts.
+- Use `scripts/meme_pack.py plan-wizard` when the user wants a command-line guided setup instead of agent chat intake.
 - Use built-in `image_gen` for raw no-text motion sheets. Use `scripts/meme_pack.py build-pack` only for deterministic processing.
 - Prefer one semantic motion sheet per sticker, not one static pose. Single-pose sources are allowed only for fast previews or fallback.
 - Motion sheets must use exact grid count, same character identity, same bounding box, same pixel scale, clear margins, no cell-edge crossing, and no text.
@@ -46,7 +56,13 @@ If the user asks for 18 and wants WeChat upload, explain that WeChat albums use 
    - `references/wechat-spec.md` for output constraints.
    - `references/personas.md` and `references/meme-library.md` for pack planning.
    - `references/styles.md` and `references/prompt-rules.md` for visual prompts.
-2. Create a plan. For a text-only concept:
+2. Choose interactively or create a plan. For a guided command-line flow:
+
+```bash
+python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-wizard
+```
+
+For a text-only concept:
 
 ```bash
 python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \

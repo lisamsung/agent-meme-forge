@@ -48,7 +48,25 @@ cp -R skills/generate-meme-gif-pack ~/.codex-switcher/skills/
 
 ## 使用
 
-### 1. 先生成计划和 image_gen 提示词
+### 1. 新手先用交互式选择
+
+如果你还没想清楚“要不要上传参考图、选什么场景、选什么风格”，先用 wizard：
+
+```bash
+python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-wizard
+```
+
+它会依次询问：
+
+- 用参考图片，还是纯文字角色概念。
+- 如果用参考图片，填写本地图片路径或 Codex 上传图标签。
+- 选择人设/场景：科研打工人、码农、都市丽人、学生等。
+- 选择画面风格：清爽贴纸、像素风、Q 版、办公室漫画等。
+- 选择微信投稿包或自用包，以及 16/24/18 数量。
+- 选择质量模式：`submission`、`standard`、`preview`。
+- 写出计划 JSON，下一步用里面的 `image_prompts` 调用 `image_gen`。
+
+### 2. 或者直接生成计划和 image_gen 提示词
 
 有参考图时，把参考图路径放到 `--reference-image`，并用 `--subject` 描述关键特征。
 
@@ -74,7 +92,7 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
 - `animation`：默认 `2x4`，每个表情 8 个动作帧。
 - `image_prompts`：24 条可直接交给 Codex `image_gen` 的无文字动作 sheet 提示词，每条都带 `visual_gag`、`qc_acceptance` 和 `regenerate_hint`。
 
-### 2. 调用 image_gen 生成无文字原图
+### 3. 调用 image_gen 生成无文字原图
 
 先把前 3 条 `image_prompts[].prompt` 交给 Codex 内置 `image_gen`，不要一口气做完 24 张。默认会要求生成一张 `2x4` 动作 sheet，例如 `raw-frames/01-收到离线-2x4.png ... 24-你说得对-2x4.png`。
 
@@ -90,7 +108,7 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py split-sheet \
   --cols 4
 ```
 
-### 3. 先跑 QC
+### 4. 先跑 QC
 
 投稿模式先验收前 3 张，过了再继续生成剩余 21 张：
 
@@ -104,7 +122,7 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py qc-sheet \
 
 失败时不要硬凑，用计划里的 `regenerate_hint` 重生。常见失败原因：画了棋盘格、角色碰到格子边缘、某一帧突然变大、角色太小、背景不是透明或纯 `#FF00FF`。
 
-### 4. 构建微信 GIF 包
+### 5. 构建微信 GIF 包
 
 ```bash
 python skills/generate-meme-gif-pack/scripts/meme_pack.py build-pack \

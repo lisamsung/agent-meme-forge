@@ -229,6 +229,10 @@
             <p>支持 text_concept 直接起角色，自动写 24 条无文字 2x4 八帧动作 sheet 提示词，再统一加中文梗。</p>
           </div>
           <div class="card">
+            <h3>交互选择</h3>
+            <p>新手可以用 plan-wizard 选择参考图片或文字概念、场景人设、画面风格、数量和质量模式。</p>
+          </div>
+          <div class="card">
             <h3>真实帧动画</h3>
             <p>迁移 sprite sheet 规则：精确网格、同尺度、同包围盒、不出格，processor 按 8 个真实帧生成 GIF。</p>
           </div>
@@ -272,6 +276,9 @@
           <pre><code>python3 -m venv .venv
 . .venv/bin/activate
 pip install -e '.[dev]'
+python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-wizard
+
+# Or build the plan directly:
 python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
   --subject "warm geometric AI assistant mascot with cream body and coral accents, original character, no official logo" \
   --persona 科研打工人 \

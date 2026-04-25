@@ -98,4 +98,4 @@ Review 后补充验证：
 - GitHub Pages 的中文文档按钮改为 GitHub README 链接，不再解析到站点根目录导致 404。
 - 新增 QC 门禁：假透明、边缘出格、bbox 漂移、单图 bounce 在投稿模式会被明确拒绝。
 
-最新自动化验证：`pytest -q` 共 29 项通过。
+最新自动化验证：`pytest -q` 共 31 项通过。

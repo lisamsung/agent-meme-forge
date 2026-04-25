@@ -14,6 +14,7 @@
 - 已补微信公众号宣传稿：`docs/wechat-public-account-draft.md`。
 - 已修复 review 发现的问题：重复构建会清理旧上传文件、超长文案会省略并保持在画布内、GitHub Pages 中文文档链接不再 404。
 - 已补强“主动生图”链路：`plan-pack` 生成角色卡和逐条 `image_gen` motion-sheet prompt；`qc-sheet` 先验收前 3 张；`split-sheet` 支持把 4x6 预览图切成 24 个源图；`build-pack --source-layout 2x4 --quality-mode submission --strict-qc` 支持默认 8 帧动作 sheet；透明背景优先，`#FF00FF` 去背兜底，假透明棋盘格直接拒绝。
+- 已新增 `plan-wizard` 交互式入口：新手可以选择参考图或文字概念、人设/场景、画面风格、微信/自用数量、质量模式和输出计划路径。
 - 已新增公开 demo 资产：`docs/assets/ai-mascot-shoudao-lixian.gif`、`ai-mascot-jiazaizhong.gif`、`ai-mascot-wenxianshan.gif` 和 `ai-mascot-sheet-preview.jpg`。
 - GitHub 仓库与 Pages 已发布：`https://github.com/lisamsung/agent-meme-forge` / `https://lisamsung.github.io/agent-meme-forge/`。
 

@@ -33,7 +33,13 @@ Restart the Codex session after installing a skill.
 
 ## Build a Pack
 
-First create a prompt plan, then call Codex `image_gen` with the generated no-text prompts.
+For a guided intake that asks whether to use a reference image or text concept, plus scene/persona, style, pack size, and quality mode:
+
+```bash
+python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-wizard
+```
+
+Or create a prompt plan directly, then call Codex `image_gen` with the generated no-text prompts.
 
 ```bash
 python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \

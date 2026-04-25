@@ -21,6 +21,8 @@ def test_skill_frontmatter_and_hard_rules_are_present():
     assert "motion sheet" in text
     assert "--source-layout" in text
     assert "qc-sheet" in text
+    assert "plan-wizard" in text
+    assert "choose" in text.lower() or "ask" in text.lower()
     assert "--quality-mode submission" in text
     assert "--strict-qc" in text
 
