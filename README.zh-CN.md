@@ -93,10 +93,24 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
 - `items`：24 个表情名、文案、关键词、发送场景。
 - `animation`：默认 `2x4`，每个表情 8 个动作帧。
 - `image_prompts`：24 条可直接交给 Codex `image_gen` 的无文字动作 sheet 提示词，每条都带 `visual_gag`、`qc_acceptance` 和 `regenerate_hint`。
+- `raw_output_dir`：原图落盘目录。
+- `image_handoff`：把 `image_gen` 结果接进本地处理器的 `accept-generated` 命令模板，以及 `generated-index.json` 记录路径。
 
 ### 3. 调用 image_gen 生成无文字原图
 
 先把前 3 条 `image_prompts[].prompt` 交给 Codex 内置 `image_gen`，不要一口气做完 24 张。默认会要求生成一张 `2x4` 动作 sheet，例如 `raw-frames/01-收到离线-2x4.png ... 24-你说得对-2x4.png`。
+
+每次 `image_gen` 产出后，先把生成图保存/导出为本地文件，再用 `accept-generated` 复制到计划里的标准文件名。这样后续 `qc-sheet` 和 `build-pack` 不会找错文件；同时 `generated-index.json` 会留下每张图的交接记录。
+
+```bash
+python skills/generate-meme-gif-pack/scripts/meme_pack.py accept-generated \
+  --plan output/ai-research-plan.json \
+  --index 1 \
+  --image path/to/generated-image.png \
+  --source-dir output/raw-frames/AI科研打工搭子
+```
+
+如果当前 `image_gen` 只在聊天里返回附件、没有本地路径，先把附件保存到本机，再运行上面的命令；本地处理器不能直接读取未保存的聊天附件。
 
 优先要求透明 PNG 背景；如果当前生图工具无法直接输出透明背景，再用纯色 `#FF00FF` 作为兜底。注意棋盘格不等于透明背景，如果模型把棋盘格画进像素里，也要退回重生。按当前 OpenAI 文档，`gpt-image-2` 不支持 `background: "transparent"`，所以对它仍然需要 `#FF00FF` 兜底。质量不行就重生：角色太小、画了文字、像官方 logo、表情不够强、道具太细、看不出发送场景、网格数量不对、前后帧角色比例乱跳、道具出格、透明边缘有明显红/粉残留，都应该退回。
 
@@ -116,7 +130,7 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py split-sheet \
 
 ```bash
 python skills/generate-meme-gif-pack/scripts/meme_pack.py qc-sheet \
-  --input raw-frames/01-收到离线-2x4.png \
+  --input output/raw-frames/AI科研打工搭子/01-收到离线-2x4.png \
   --source-layout 2x4 \
   --quality-mode submission \
   --output output/qc/01-qc.json
@@ -128,7 +142,7 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py qc-sheet \
 
 ```bash
 python skills/generate-meme-gif-pack/scripts/meme_pack.py build-pack \
-  --source-dir raw-frames \
+  --source-dir output/raw-frames/AI科研打工搭子 \
   --output-dir output/my-pack \
   --persona 科研打工人 \
   --style clean-sticker \

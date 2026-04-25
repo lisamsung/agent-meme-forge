@@ -29,8 +29,9 @@ Then run `meme_pack.py plan-pack` and use its `image_prompts` with built-in `ima
 2. persona -> sendable meme list
 3. meme item -> no-text motion sheet prompt
 4. `image_gen` -> one semantic sheet per sticker
-5. `qc-sheet --source-layout 2x4 --quality-mode submission` -> reject bad sheets before batch generation
-6. `build-pack --source-layout 2x4 --quality-mode submission --strict-qc` -> Chinese captions, GIF loops, WeChat package
+5. `accept-generated` -> copy the saved image_gen result to the planned `raw_image_filename` and update `generated-index.json`
+6. `qc-sheet --source-layout 2x4 --quality-mode submission` -> reject bad sheets before batch generation
+7. `build-pack --source-layout 2x4 --quality-mode submission --strict-qc` -> Chinese captions, GIF loops, WeChat package
 
 ## Raw Image Prompt Pattern
 
@@ -76,14 +77,22 @@ The processor now treats QC as a gate, not a suggestion. A raw sheet should pass
 Use the first three generated sheets as the quality probe:
 
 ```bash
+python skills/generate-meme-gif-pack/scripts/meme_pack.py accept-generated \
+  --plan output/ai-research-plan.json \
+  --index 1 \
+  --image path/to/generated-image.png \
+  --source-dir output/raw-frames/AI科研打工搭子
+```
+
+```bash
 python skills/generate-meme-gif-pack/scripts/meme_pack.py qc-sheet \
-  --input output/raw-frames/01-收到离线-2x4.png \
+  --input output/raw-frames/AI科研打工搭子/01-收到离线-2x4.png \
   --source-layout 2x4 \
   --quality-mode submission \
   --output output/qc/01-qc.json
 ```
 
-If QC fails, regenerate with a stricter prompt: larger face, fewer props, more margin, same bounding box, same pixel scale, no checkerboard, transparent PNG or pure `#FF00FF` only.
+If `image_gen` only returns a chat attachment, save/export it to a local file before running `accept-generated`; QC and build commands cannot read an unsaved attachment. If QC fails, regenerate with a stricter prompt: larger face, fewer props, more margin, same bounding box, same pixel scale, no checkerboard, transparent PNG or pure `#FF00FF` only.
 
 Transparency note: use true alpha output when the image model or API supports it. As of the current OpenAI image-generation docs, `gpt-image-2` does not support `background: "transparent"`, so `#FF00FF` fallback plus local cleanup is still necessary for that model.
 

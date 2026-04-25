@@ -45,6 +45,8 @@ If the user asks for 18 and wants WeChat upload, explain that WeChat albums use 
 - Use `scripts/meme_pack.py plan-pack` to write the meme entries, character card, and per-sticker `image_gen` prompts.
 - Use `scripts/meme_pack.py plan-wizard` when the user wants a command-line guided setup instead of agent chat intake.
 - Use built-in `image_gen` for raw no-text motion sheets. Use `scripts/meme_pack.py build-pack` only for deterministic processing.
+- After each `image_gen` result, persist the generated image as a local file and run `scripts/meme_pack.py accept-generated`; this copies it to the planned `raw_image_filename` and writes `generated-index.json`.
+- If `image_gen` returns only an attachment with no usable local file path, stop and ask the user to save/export the attachment locally before QC. Do not pretend `qc-sheet` can read an unsaved chat attachment.
 - Prefer one semantic motion sheet per sticker, not one static pose. Single-pose sources are allowed only for fast previews or fallback.
 - Motion sheets must use exact grid count, same character identity, same bounding box, same pixel scale, clear margins, no cell-edge crossing, and no text.
 - Prefer transparent PNG background directly from the image model. If transparency is not available, use a solid flat `#FF00FF` background as fallback; the processor removes it and cleans magenta edge spill.
@@ -87,6 +89,7 @@ For a reference image, add `--reference-image path/to/reference.png` and describ
    - `animation`: sheet layout and frame count, default `2x4` / 8 frames.
    - `image_prompts`: one motion-sheet prompt per sticker for `image_gen`.
    - `requires_agent_tooling`: confirms `image_gen` is required for actual generation.
+   - `image_handoff`: exact `accept-generated` command template and `generated-index.json` audit path.
 4. Plan 24 entries:
    - 12 common high-frequency chat reactions.
    - 8 persona-specific jokes.
@@ -98,12 +101,21 @@ For a reference image, add `--reference-image path/to/reference.png` and describ
    - Each sheet frame should be a real acting beat: start, anticipation, action, escalation, peak reaction, rebound, settle, loopable return.
    - For a fast first pass only, one 4x6 contact sheet of static poses is acceptable; split it with `split-sheet` before `build-pack`.
    - Ask for transparent PNG background first. If the model/tool cannot output transparency, use a solid flat `#FF00FF` background; the processor removes it locally.
-   - Run `qc-sheet` on those first 3 motion sheets. If a sheet fails, use its `regenerate_hint` from the plan and generate again.
+   - After each generated image is available as a local file, run `accept-generated` so it lands at the planned raw filename.
+   - Run `qc-sheet` on those first 3 accepted motion sheets. If a sheet fails, use its `regenerate_hint` from the plan and generate again.
    - Continue to the remaining 21 sheets only after the first 3 pass QC.
 
 ```bash
+python skills/generate-meme-gif-pack/scripts/meme_pack.py accept-generated \
+  --plan output/ai-research-plan.json \
+  --index 1 \
+  --image path/to/generated-image.png \
+  --source-dir output/raw-frames/AI科研打工搭子
+```
+
+```bash
 python skills/generate-meme-gif-pack/scripts/meme_pack.py qc-sheet \
-  --input output/raw-frames/01-收到离线-2x4.png \
+  --input output/raw-frames/AI科研打工搭子/01-收到离线-2x4.png \
   --source-layout 2x4 \
   --quality-mode submission \
   --output output/qc/01-qc.json

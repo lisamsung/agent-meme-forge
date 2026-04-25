@@ -26,7 +26,8 @@ pip install -e '.[dev]'
 To install the skill locally:
 
 ```bash
-cp -R skills/generate-meme-gif-pack ~/.codex/skills/
+mkdir -p /Users/shanxingjun/.codex-switcher/skills
+cp -R skills/generate-meme-gif-pack /Users/shanxingjun/.codex-switcher/skills/
 ```
 
 Restart the Codex session after installing a skill.
@@ -53,11 +54,21 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
   --output output/ai-research-plan.json
 ```
 
-Generate and QC the first 3 sheets before making all 24. Save accepted transparent-background raw `2x4` motion sheets into `raw-frames/`. If transparency is unavailable, use a solid `#FF00FF` fallback background. Static 4x6 contact sheets are useful only for previews; split them first if you use that lower-quality path:
+Generate and QC the first 3 sheets before making all 24. Save/export each `image_gen` result to a local file, then accept it into the planned raw filename:
+
+```bash
+python skills/generate-meme-gif-pack/scripts/meme_pack.py accept-generated \
+  --plan output/ai-research-plan.json \
+  --index 1 \
+  --image path/to/generated-image.png \
+  --source-dir output/raw-frames/AgentMemePack
+```
+
+Save accepted transparent-background raw `2x4` motion sheets into `raw-frames/`. If transparency is unavailable, use a solid `#FF00FF` fallback background. Static 4x6 contact sheets are useful only for previews; split them first if you use that lower-quality path:
 
 ```bash
 python skills/generate-meme-gif-pack/scripts/meme_pack.py qc-sheet \
-  --input raw-frames/01-收到离线-2x4.png \
+  --input output/raw-frames/AgentMemePack/01-收到离线-2x4.png \
   --source-layout 2x4 \
   --quality-mode submission \
   --output output/qc/01-qc.json
@@ -75,7 +86,7 @@ Then build the package:
 
 ```bash
 python skills/generate-meme-gif-pack/scripts/meme_pack.py build-pack \
-  --source-dir raw-frames \
+  --source-dir output/raw-frames/AgentMemePack \
   --output-dir output/my-pack \
   --persona 科研打工人 \
   --style clean-sticker \

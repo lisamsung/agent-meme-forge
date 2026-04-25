@@ -5,6 +5,7 @@ import csv
 import json
 import math
 import re
+import shlex
 import shutil
 import sys
 from collections import deque
@@ -516,6 +517,10 @@ def image_prompt_for_entry(
     }
 
 
+def shell_join(parts: list[str]) -> str:
+    return " ".join(shlex.quote(str(part)) for part in parts)
+
+
 def plan_pack(
     subject: str,
     persona: str = "科研打工人",
@@ -537,6 +542,46 @@ def plan_pack(
         image_prompt_for_entry(entry, index, subject, persona, style, character_card, tone, animation_layout)
         for index, entry in enumerate(entries, start=1)
     ]
+    pack_slug = slug_filename(pack_name)
+    raw_output_dir = f"output/raw-frames/{pack_slug}"
+    output_dir = f"output/{pack_slug}"
+    processor_command_args = [
+        "python",
+        "skills/generate-meme-gif-pack/scripts/meme_pack.py",
+        "build-pack",
+        "--source-dir",
+        raw_output_dir,
+        "--output-dir",
+        output_dir,
+        "--persona",
+        persona,
+        "--style",
+        style,
+        "--pack-size",
+        str(pack_size),
+        "--mode",
+        mode,
+        "--pack-name",
+        pack_name,
+        "--source-layout",
+        animation_layout,
+        "--quality-mode",
+        quality_mode,
+        "--strict-qc",
+    ]
+    accept_generated_command_args = [
+        "python",
+        "skills/generate-meme-gif-pack/scripts/meme_pack.py",
+        "accept-generated",
+        "--plan",
+        "output/<plan-json>",
+        "--index",
+        "1",
+        "--image",
+        "path/to/generated.png",
+        "--source-dir",
+        raw_output_dir,
+    ]
     return {
         "pack_name": pack_name,
         "subject": subject.strip(),
@@ -548,6 +593,7 @@ def plan_pack(
         "mode": mode,
         "tone": tone,
         "quality_mode": quality_mode,
+        "raw_output_dir": raw_output_dir,
         "character_card": character_card,
         "animation": {
             "source_layout": animation_layout,
@@ -562,21 +608,23 @@ def plan_pack(
             "local_processor": "scripts/meme_pack.py",
             "tool_boundary": "The local processor cannot generate images. The Codex agent must invoke image_gen when the user requested actual sticker generation.",
         },
+        "image_handoff": {
+            "tool_output_requirement": "After each image_gen call, persist the generated PNG/GIF to a local file before running QC. If the tool only returns a chat attachment and no local path is available, stop and ask the user to save/export that attachment.",
+            "accept_generated_command": shell_join(accept_generated_command_args),
+            "index_file": f"{raw_output_dir}/generated-index.json",
+            "blocked_without_local_file": True,
+        },
         "agent_instructions": [
             "MUST call built-in image_gen for the first 3 image_prompts before committing to all 24 when the current agent session exposes an image generation tool. Do not stop after writing the plan or tell the user to call image_gen manually unless the tool is unavailable. Save each raw no-text motion sheet exactly as raw_image_filename.",
-            f"Run meme_pack.py qc-sheet --source-layout {animation_layout} --quality-mode {quality_mode} on those first 3 sheets and regenerate any fail or weak warning using regenerate_hint.",
+            "After each image_gen result is saved/exported as a local image, run meme_pack.py accept-generated with the plan JSON, sticker index, generated image path, and raw output directory so QC/build-pack can find the exact planned filename.",
+            f"Run meme_pack.py qc-sheet --source-layout {animation_layout} --quality-mode {quality_mode} on those first 3 accepted sheets and regenerate any fail or weak warning using regenerate_hint.",
             "After the first 3 sheets pass QC, call image_gen once per remaining image_prompt to generate one no-text motion sheet per sticker.",
-            "Save raw generated no-text images using raw_image_filename under a source directory such as output/raw-frames/<pack-slug>/.",
+            f"Save raw generated no-text images using raw_image_filename under {raw_output_dir}; accept-generated writes generated-index.json as the handoff audit trail.",
             "Reject and regenerate any raw sheet that contains text, speech bubbles, official logos, brand marks, wrong grid count, a tiny face, edge-crossing props, or a character that drifts from the character card.",
             f"After raw sheets are accepted, run meme_pack.py build-pack with --source-layout {animation_layout} --quality-mode {quality_mode} --strict-qc plus the same persona, style, pack_size, mode, and pack_name.",
         ],
-        "processor_command": (
-            "python skills/generate-meme-gif-pack/scripts/meme_pack.py build-pack "
-            "--source-dir output/raw-frames/<pack-slug> "
-            "--output-dir output/<pack-slug> "
-            f"--persona {persona} --style {style} --pack-size {pack_size} --mode {mode} "
-            f"--pack-name {pack_name} --source-layout {animation_layout} --quality-mode {quality_mode} --strict-qc"
-        ),
+        "processor_command_args": processor_command_args,
+        "processor_command": shell_join(processor_command_args),
     }
 
 
@@ -680,7 +728,7 @@ def fit_text_lines(
 
 
 def slug_filename(name: str) -> str:
-    cleaned = re.sub(r'[\\\\/:*?"<>|\\s]+', "", name).strip(".")
+    cleaned = re.sub(r'[\\/:*?"<>|\s]+', "", name).strip(".")
     return cleaned or "meme"
 
 
@@ -1510,6 +1558,67 @@ def write_plan(path: Path, plan: dict) -> None:
     path.write_text(json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def accept_generated_image(plan_path: Path, index: int, image_path: Path, source_dir: Path | None = None) -> dict:
+    if index < 1:
+        raise ValueError("--index must be 1-based and greater than 0.")
+    if not plan_path.exists():
+        raise ValueError(f"Plan JSON not found: {plan_path}")
+    if not image_path.exists():
+        raise ValueError(f"Generated image not found: {image_path}")
+
+    try:
+        with Image.open(image_path) as image:
+            image.verify()
+    except OSError as exc:
+        raise ValueError(f"Generated image is not a readable image: {image_path}") from exc
+
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    prompts = plan.get("image_prompts") or []
+    if index > len(prompts):
+        raise ValueError(f"--index {index} is outside the plan image_prompts range 1..{len(prompts)}.")
+    prompt = prompts[index - 1]
+    raw_filename = prompt.get("raw_image_filename")
+    if not raw_filename:
+        name = prompt.get("name") or prompt.get("meme_name") or "meme"
+        layout = prompt.get("animation_layout") or plan.get("animation", {}).get("source_layout") or DEFAULT_ANIMATION_LAYOUT
+        raw_filename = f"{index:02d}-{slug_filename(name)}-{layout}.png"
+
+    target_dir = source_dir or Path(plan.get("raw_output_dir") or "output/raw-frames")
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target = target_dir / raw_filename
+    if image_path.resolve() != target.resolve():
+        shutil.copyfile(image_path, target)
+
+    record = {
+        "index": index,
+        "name": prompt.get("name") or prompt.get("meme_name") or "",
+        "source_image": str(image_path),
+        "saved_image": str(target),
+        "raw_image_filename": raw_filename,
+        "prompt_name": prompt.get("meme_name") or prompt.get("name") or "",
+    }
+    index_path = target_dir / "generated-index.json"
+    if index_path.exists():
+        try:
+            handoff = json.loads(index_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            handoff = {}
+    else:
+        handoff = {}
+    items = [item for item in handoff.get("items", []) if item.get("index") != index]
+    items.append(record)
+    handoff.update(
+        {
+            "plan": str(plan_path),
+            "source_dir": str(target_dir),
+            "items": sorted(items, key=lambda item: item["index"]),
+        }
+    )
+    index_path.write_text(json.dumps(handoff, ensure_ascii=False, indent=2), encoding="utf-8")
+    record["handoff_index"] = str(index_path)
+    return record
+
+
 def load_entries(path: Path) -> list[MemeEntry]:
     data = json.loads(path.read_text(encoding="utf-8"))
     return [MemeEntry(**item) for item in data]
@@ -1525,6 +1634,7 @@ def cmd_list_options() -> None:
                 "animation_layouts": sorted(SHEET_LAYOUTS),
                 "source_layouts": ["auto", "single", *sorted(SHEET_LAYOUTS)],
                 "quality_modes": sorted(QUALITY_MODES),
+                "handoff_commands": ["plan-pack", "accept-generated", "qc-sheet", "build-pack"],
                 "wechat_pack_sizes": [16, 24],
                 "self_use_pack_sizes": [18],
             },
@@ -1576,7 +1686,7 @@ def _prompt_choice(
 
 def run_plan_wizard(input_fn=input, print_fn=print) -> dict:
     print_fn("Agent Meme Forge interactive plan wizard")
-    print_fn("This wizard only writes the plan JSON. Generate the first 3 raw sheets with image_gen, then run qc-sheet.")
+    print_fn("This wizard only writes the plan JSON. Generate the first 3 raw sheets with image_gen, accept each local image file, then run qc-sheet.")
     input_mode = _prompt_choice(
         "Step 1: choose the character source",
         ["text_concept", "reference_image"],
@@ -1667,7 +1777,8 @@ def run_plan_wizard(input_fn=input, print_fn=print) -> dict:
     )
     write_plan(output, plan)
     print_fn(f"Plan written: {output}")
-    print_fn("Next: 先生成前 3 张 image_gen motion sheets, run qc-sheet, then continue with the remaining sheets.")
+    print_fn("Next: 先生成前 3 张 image_gen motion sheets, 用 accept-generated 落盘命名，再 run qc-sheet；通过后继续剩余图片。")
+    print_fn(plan["image_handoff"]["accept_generated_command"])
     print_fn(plan["processor_command"])
     return plan
 
@@ -1697,6 +1808,16 @@ def main(argv: list[str] | None = None) -> int:
     plan_parser.add_argument("--animation-layout", default=DEFAULT_ANIMATION_LAYOUT, choices=sorted(SHEET_LAYOUTS))
     plan_parser.add_argument("--quality-mode", default="submission", choices=sorted(QUALITY_MODES))
     plan_parser.add_argument("--output", required=True, type=Path)
+
+    accept_parser = sub.add_parser("accept-generated", help="Persist an image_gen result under the planned raw filename.")
+    accept_parser.add_argument("--plan", required=True, type=Path, help="Plan JSON written by plan-pack or plan-wizard.")
+    accept_parser.add_argument("--index", required=True, type=int, help="1-based sticker index from image_prompts.")
+    accept_parser.add_argument("--image", required=True, type=Path, help="Local image file exported from image_gen.")
+    accept_parser.add_argument(
+        "--source-dir",
+        type=Path,
+        help="Raw frame directory. Defaults to raw_output_dir from the plan JSON.",
+    )
 
     qc_parser = sub.add_parser("qc-sheet", help="Inspect a raw motion sheet before building a WeChat pack.")
     qc_parser.add_argument("--input", required=True, type=Path)
@@ -1762,6 +1883,14 @@ def main(argv: list[str] | None = None) -> int:
                 quality_mode=args.quality_mode,
             )
             write_plan(args.output, plan)
+            return 0
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+    if args.command == "accept-generated":
+        try:
+            record = accept_generated_image(args.plan, args.index, args.image, args.source_dir)
+            print(json.dumps(record, ensure_ascii=False, indent=2))
             return 0
         except ValueError as exc:
             print(f"error: {exc}", file=sys.stderr)

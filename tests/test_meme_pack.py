@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import shlex
 from pathlib import Path
 
 import pytest
@@ -167,6 +168,78 @@ def test_plan_pack_builds_direct_text_image_prompts():
     assert "MUST call built-in image_gen" in plan["agent_instructions"][0]
     assert "Do not stop after writing the plan" in plan["agent_instructions"][0]
     assert plan["requires_agent_tooling"]["image_generation_tool"] == "image_gen"
+    assert plan["raw_output_dir"] == "output/raw-frames/AgentMemePack"
+    assert "accept-generated" in plan["image_handoff"]["accept_generated_command"]
+    assert "generated-index.json" in plan["image_handoff"]["index_file"]
+
+
+def test_plan_pack_writes_shell_safe_commands_and_handoff():
+    meme_pack = load_module()
+
+    plan = meme_pack.plan_pack(
+        subject="round mascot",
+        persona="科研打工人",
+        style="clean-sticker",
+        pack_name="Agent Meme Pack",
+    )
+
+    processor_parts = shlex.split(plan["processor_command"])
+    pack_name_value = processor_parts[processor_parts.index("--pack-name") + 1]
+
+    assert pack_name_value == "Agent Meme Pack"
+    assert plan["processor_command_args"] == processor_parts
+    assert "--image path/to/generated.png" in plan["image_handoff"]["accept_generated_command"]
+    assert "accept-generated" in " ".join(plan["agent_instructions"])
+
+
+def test_accept_generated_copies_image_to_planned_raw_filename(tmp_path: Path):
+    meme_pack = load_module()
+    plan = meme_pack.plan_pack(subject="round mascot", pack_name="Agent Meme Pack")
+    plan_path = tmp_path / "plan.json"
+    meme_pack.write_plan(plan_path, plan)
+
+    generated = tmp_path / "generated.png"
+    Image.new("RGBA", (16, 16), (255, 0, 255, 255)).save(generated)
+    result = meme_pack.accept_generated_image(plan_path, 1, generated, tmp_path / "raw")
+    expected = tmp_path / "raw" / plan["image_prompts"][0]["raw_image_filename"]
+    index = json.loads((tmp_path / "raw" / "generated-index.json").read_text(encoding="utf-8"))
+
+    assert expected.exists()
+    assert result["saved_image"] == str(expected)
+    assert result["raw_image_filename"] == plan["image_prompts"][0]["raw_image_filename"]
+    assert index["plan"] == str(plan_path)
+    assert index["source_dir"] == str(tmp_path / "raw")
+    assert index["items"][0]["index"] == 1
+    assert index["items"][0]["saved_image"] == str(expected)
+
+
+def test_cli_accept_generated_writes_json(tmp_path: Path, capsys):
+    meme_pack = load_module()
+    plan = meme_pack.plan_pack(subject="round mascot")
+    plan_path = tmp_path / "plan.json"
+    meme_pack.write_plan(plan_path, plan)
+    generated = tmp_path / "generated.png"
+    Image.new("RGBA", (16, 16), (255, 0, 255, 255)).save(generated)
+
+    result = meme_pack.main(
+        [
+            "accept-generated",
+            "--plan",
+            str(plan_path),
+            "--index",
+            "1",
+            "--image",
+            str(generated),
+            "--source-dir",
+            str(tmp_path / "raw"),
+        ]
+    )
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+
+    assert result == 0
+    assert payload["saved_image"].endswith(plan["image_prompts"][0]["raw_image_filename"])
+    assert (tmp_path / "raw" / "generated-index.json").exists()
 
 
 def test_cli_plan_pack_writes_json(tmp_path: Path):

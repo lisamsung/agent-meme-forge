@@ -21,6 +21,8 @@ def test_skill_frontmatter_and_hard_rules_are_present():
     assert "motion sheet" in text
     assert "--source-layout" in text
     assert "qc-sheet" in text
+    assert "accept-generated" in text
+    assert "generated-index.json" in text
     assert "plan-wizard" in text
     assert "choose" in text.lower() or "ask" in text.lower()
     assert "--quality-mode submission" in text
@@ -59,6 +61,7 @@ def test_prompt_rules_support_direct_text_generation():
     assert "checkerboard" in text
     assert "QC" in text or "qc" in text
     assert "edge" in text
+    assert "accept-generated" in text
 
 
 def test_pages_readme_link_stays_inside_project_or_github():
