@@ -29,7 +29,7 @@ Then run `meme_pack.py plan-pack` and use its `image_prompts` with built-in `ima
 2. persona -> sendable meme list
 3. meme item -> no-text motion sheet prompt
 4. `image_gen` -> one semantic sheet per sticker
-5. `build-pack --source-layout 1x4` -> Chinese captions, GIF loops, WeChat package
+5. `build-pack --source-layout 2x4` -> Chinese captions, GIF loops, WeChat package
 
 ## Raw Image Prompt Pattern
 
@@ -37,7 +37,7 @@ Use this structure for each sticker:
 
 1. “Stylized sticker character based on the uploaded reference image...”
 2. State style, persona, expression, and action.
-3. State sheet behavior: default `1x4` motion sheet with 4 acting beats.
+3. State sheet behavior: default `2x4` motion sheet with 8 acting beats for smoother GIFs.
 4. State sprite-forge-style sheet constraints: exact grid count, no borders, same identity, same bounding box, same pixel scale, no edge crossing, clear margin.
 5. State constraints: **no text**, no Chinese characters, no labels, no official logo, no brand mark, no speech bubbles, no UI, uncluttered background, full character visible, large readable face, centered composition.
 6. State WeChat readability: must read clearly at 240x240.
@@ -46,21 +46,31 @@ Use this structure for each sticker:
 
 The high-quality path uses semantic motion sheets, adapted from `generate2dsprite`:
 
-- default sheet: `1x4`, exactly 4 equal cells in one row
-- richer sheet: `2x2` for compact action/reaction, or `2x3` for bigger transformation/cast-style moments
+- default sheet: `2x4`, exactly 8 equal cells in two rows and four columns
+- lighter sheet: `1x4` for compact previews or stricter file-size budgets
+- alternate 8-frame sheet: `1x8` when the model handles a wide strip better
+- richer alternate sheets: `2x2`, `2x3`, `3x3`, or `4x4` when the user needs a special animation structure
 - no borders, no separator lines, no numbered cells
 - same character identity, same outfit cues, same color anchors, same bounding box, and same pixel scale across frames
 - the entire character, prop, effect, sweat drop, paper stack, chart, laptop, or glow must fit fully inside each cell
 - leave clear margin on all four sides; nothing may cross a cell edge
-- use a 100% solid flat `#FF00FF` background when possible so local processing can remove it
+- prefer a real transparent PNG background directly from the image model
+- if transparent output is unavailable, use a 100% solid flat `#FF00FF` background so local processing can remove it
+- reject fake checkerboard transparency patterns; a checkerboard drawn into the pixels is not a transparent background
 - each frame should be a different acting beat, not a random new illustration
 
-Default `1x4` acting rhythm:
+Transparency note: use true alpha output when the image model or API supports it. As of the current OpenAI image-generation docs, `gpt-image-2` does not support `background: "transparent"`, so `#FF00FF` fallback plus local cleanup is still necessary for that model.
+
+Default `2x4` acting rhythm:
 
 1. readable starting expression
-2. action starts
-3. peak meme reaction
-4. settle pose that loops cleanly back to frame 1
+2. anticipation beat
+3. action starts
+4. action escalates
+5. peak meme reaction
+6. rebound from peak reaction
+7. settle pose
+8. loopable return pose
 
 ## Good Raw Prompt Example
 
@@ -71,15 +81,19 @@ Stylized clean sticker character based on the uploaded reference image, recogniz
 ## Good Text Concept Prompt Example
 
 ```text
-Create one raw no-text 1x4 motion sheet for a Chinese WeChat animated meme GIF sticker pack.
+Create one raw no-text 2x4 motion sheet for a Chinese WeChat animated meme GIF sticker pack.
 Character card: text_concept warm geometric AI assistant mascot with cream body, coral accents, friendly abstract face, tiny paper-stack anxiety, original character, no official logo. Keep the same head shape, color anchors, body proportions, line weight, and facial feature logic across every sticker.
 Persona context: 科研打工人; useful visual cues: papers, literature review, group meeting pressure, charts, revision anxiety.
 Meme item: 文献山. Chat send scenario: literature keeps multiplying. The final Chinese caption will be added later by a local processor; do not draw any text.
-Motion sheet rules: exactly 4 equal cells in a 1x4 grid, no borders, same character identity, same bounding box, same pixel scale, clear magenta margin, nothing crosses a cell edge.
+Motion sheet rules: exactly 8 equal cells in a 2x4 grid, no borders, same character identity, same bounding box, same pixel scale, transparent PNG background preferred, #FF00FF fallback only if transparency is not available, no fake checkerboard pattern, nothing crosses a cell edge.
 Frame 1: the mascot notices one small paper stack, worried eyes.
-Frame 2: the stack grows quickly around the mascot.
-Frame 3: the mascot is half buried, eyes wide and panicked.
-Frame 4: the mascot pops back up exhausted, loopable return pose.
+Frame 2: the mascot reaches toward the stack with hesitation.
+Frame 3: the stack grows quickly around the mascot.
+Frame 4: papers start flying around the mascot.
+Frame 5: the mascot is half buried, eyes wide and panicked.
+Frame 6: paper pile reaches peak chaos around the mascot.
+Frame 7: the mascot pops back up exhausted.
+Frame 8: the mascot settles with a tiny defeated sigh, loopable return pose.
 Composition: one character only, centered, full character or large bust visible, oversized readable face, crisp silhouette, simple transparent-friendly background, high contrast, designed to read at 240x240.
 Hard negative rules: no text, no words, no Chinese characters, no Latin letters, no captions, no labels, no watermark, no official logo, no brand mark, no UI, no speech bubbles.
 ```
@@ -91,7 +105,7 @@ Hard negative rules: no text, no words, no Chinese characters, no Latin letters,
 - Do not depend on tiny props for the joke; text and expression carry the meme.
 - If identity drifts between frames, regenerate with stricter same bounding box / same pixel scale rules.
 - If speed matters, ask `image_gen` for an exact `4 columns by 6 rows` contact sheet of static poses, then run `meme_pack.py split-sheet --rows 6 --cols 4`. Keep generous whitespace so each crop contains one centered pose. This is a preview path, not the best final-quality path.
-- `build-pack` reads motion sheets with `--source-layout 1x4`, `2x2`, or `2x3`; single static sources fall back to a simple bounce loop.
+- `build-pack` reads motion sheets with `--source-layout 2x4`, `1x8`, `1x4`, `2x2`, or `2x3`; single static sources fall back to a simple bounce loop.
 
 ## Rejection Rules
 
@@ -104,6 +118,8 @@ Regenerate or replace any raw image if:
 - sheet has borders, separator lines, or numbered cells
 - character scale or bounding box changes randomly between frames
 - body parts, props, or effects cross cell edges
+- transparent output has colored halos, or magenta fallback leaves visible red/pink edge spill after processing
+- the image shows a checkerboard background as visible pixels instead of real alpha transparency
 - gesture cannot be understood without explanation
 - background dominates the character
 - pose feels like an illustration, not a sendable reaction

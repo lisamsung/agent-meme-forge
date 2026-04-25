@@ -1,6 +1,6 @@
 # Example Test Report
 
-本报告记录 `agent-meme-forge` 在本机跑出的端到端样例。前三组使用合成参考图验证处理器；AI 吉祥物样例使用真实 `image_gen` contact sheet 验证“提示词计划 -> 生图 -> 切图 -> 微信打包”链路。最新版本已进一步迁移 `generate2dsprite` 的 motion-sheet 规则，默认推荐每个表情使用 `1x4` 语义动作 sheet。
+本报告记录 `agent-meme-forge` 在本机跑出的端到端样例。前三组使用合成参考图验证处理器；AI 吉祥物样例使用真实 `image_gen` contact sheet 验证“提示词计划 -> 生图 -> 切图 -> 微信打包”链路。最新版本已进一步迁移 `generate2dsprite` 的 motion-sheet 规则，默认推荐每个表情使用 `2x4` 八帧语义动作 sheet。
 
 ## Test Environment
 
@@ -28,15 +28,16 @@
 
 The sample subject is an original warm cream-and-coral AI assistant mascot. It is only inspired by familiar AI-assistant aesthetics and explicitly avoids official logos, brand marks, and exact mascot copying.
 
-The published `ai-mascot-wenxianshan.gif` preview has been regenerated from a real `1x4` motion sheet and now contains 4 semantic frames instead of a single static pose bounce.
+The published `ai-mascot-wenxianshan.gif` preview has been regenerated from a real motion sheet and contains semantic frames instead of a single static pose bounce.
 
 ## Motion-Sheet Upgrade
 
 新版本新增高质量动画路径：
 
-- `plan-pack` 默认输出 `animation.source_layout = 1x4`。
-- 每条 `image_prompts` 都要求 exact grid、same identity、same bounding box、same pixel scale、no edge crossing、solid `#FF00FF` background。
-- `build-pack --source-layout 1x4` 会把每个源图当成一张 4 帧动作 sheet，而不是只对静态图做缩放 bounce。
+- `plan-pack` 默认输出 `animation.source_layout = 2x4`，也支持 `1x8`。
+- 每条 `image_prompts` 都要求 exact grid、same identity、same bounding box、same pixel scale、no edge crossing、transparent PNG background preferred、solid `#FF00FF` fallback。
+- `build-pack --source-layout 2x4` 会把每个源图当成一张 8 帧动作 sheet，而不是只对静态图做缩放 bounce。
+- `remove_chroma_background()` 已增强近似洋红和边缘红/粉 spill 处理，降低 fallback 去背残留。
 - `manifest.json` 为每个条目记录 `animation_source`、`source_layout`、`source_frame_count`。
 
 ## Positive Results
@@ -91,4 +92,4 @@ Review 后补充验证：
 - 超长中文文案会在最小字号下裁成可容纳的行数，并用省略号结尾，避免文字覆盖角色或越出 240x240 画布。
 - GitHub Pages 的中文文档按钮改为 GitHub README 链接，不再解析到站点根目录导致 404。
 
-最新自动化验证：`pytest -q` 共 17 项通过。
+最新自动化验证：`pytest -q` 共 19 项通过。

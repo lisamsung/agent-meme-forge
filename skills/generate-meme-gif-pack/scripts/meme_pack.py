@@ -73,13 +73,15 @@ HARD_IMAGE_RULES = (
 
 SHEET_LAYOUTS = {
     "1x4": (1, 4),
+    "1x8": (1, 8),
     "2x2": (2, 2),
     "2x3": (2, 3),
+    "2x4": (2, 4),
     "3x3": (3, 3),
     "4x4": (4, 4),
 }
 
-DEFAULT_ANIMATION_LAYOUT = "1x4"
+DEFAULT_ANIMATION_LAYOUT = "2x4"
 
 
 @dataclass(frozen=True)
@@ -249,65 +251,101 @@ def animation_frames_for_entry(entry: MemeEntry, frame_count: int = 4) -> list[s
     if any(token in motion for token in ["paper pile", "scroll", "document", "literature"]):
         frames = [
             f"{name}: character notices one small paper stack, worried eyes",
+            f"{name}: character reaches toward the paper stack with hesitation",
             f"{name}: paper stack grows quickly around the character",
+            f"{name}: papers start flying around the character",
             f"{name}: character is half buried, eyes wide and panicked",
+            f"{name}: paper pile reaches peak chaos around the character",
             f"{name}: character pops back up exhausted, loopable return pose",
+            f"{name}: character settles with a tiny defeated sigh, ready to loop",
         ]
     elif any(token in motion for token in ["typing", "terminal", "compile", "keyboard"]):
         frames = [
             f"{name}: character freezes at the keyboard before starting",
+            f"{name}: character leans in with nervous focus",
             f"{name}: frantic typing begins, hands slightly blurred",
+            f"{name}: typing accelerates, sweat appears",
             f"{name}: peak panic typing with sweat and screen glow",
+            f"{name}: character jolts as if a new problem appears",
             f"{name}: tiny exhausted pause, still loopable back to frame 1",
+            f"{name}: character resets hands on keyboard for loop",
         ]
     elif any(token in motion for token in ["shake", "tremble", "wobble", "panic"]):
         frames = [
             f"{name}: character holds a tense neutral pose",
             f"{name}: character shakes slightly to the left",
+            f"{name}: character snaps back through center",
             f"{name}: character shakes harder to the right with sweat",
+            f"{name}: character squeezes eyes shut at peak stress",
             f"{name}: character snaps back to tense center, loopable",
+            f"{name}: character breathes once but is still worried",
+            f"{name}: character returns to tense neutral pose",
         ]
     elif any(token in motion for token in ["nod", "understand", "blink"]):
         frames = [
             f"{name}: character stares blankly, eyes open",
             f"{name}: character blinks slowly",
+            f"{name}: character looks slightly unsure",
             f"{name}: character gives a tiny uncertain nod",
+            f"{name}: character nods a little too hard",
             f"{name}: character returns to blank stare, loopable",
+            f"{name}: character blinks again with empty confidence",
+            f"{name}: character settles into the starting stare",
         ]
     elif any(token in motion for token in ["recoil", "jump", "hit", "swoop"]):
         frames = [
             f"{name}: character sees the problem approaching",
+            f"{name}: character begins to lean back",
             f"{name}: character recoils backward with wide eyes",
+            f"{name}: character flails at mid recoil",
             f"{name}: peak exaggerated impact pose",
+            f"{name}: character rebounds forward slightly",
             f"{name}: character settles back while still shocked",
+            f"{name}: character holds a loopable stunned pose",
         ]
     elif any(token in motion for token in ["droop", "flatline", "data", "chart"]):
         frames = [
             f"{name}: character holds a chart hopefully",
+            f"{name}: character points at the chart with cautious optimism",
             f"{name}: chart line starts falling",
+            f"{name}: character notices the bad trend",
             f"{name}: chart droops or flatlines, character deflates",
+            f"{name}: character's shoulders sink lower",
             f"{name}: character stares at the result in silence",
+            f"{name}: character returns to holding the sad chart, loopable",
         ]
     elif any(token in motion for token in ["summon", "glow", "sparkle", "ritual"]):
         frames = [
             f"{name}: small glow appears near the character",
+            f"{name}: character notices the glow",
             f"{name}: glow expands and character notices",
+            f"{name}: glow circles around the character",
             f"{name}: peak summon or ritual panic pose",
+            f"{name}: glow starts fading while character stays tense",
             f"{name}: glow fades while character remains stressed",
+            f"{name}: character settles into a loopable worried pose",
         ]
     elif any(token in motion for token in ["fade", "sleep", "ghost"]):
         frames = [
             f"{name}: character sits normally but tired",
+            f"{name}: character eyelids droop",
             f"{name}: character starts sinking or fading",
+            f"{name}: character fades further with sleepy posture",
             f"{name}: character is mostly mentally gone",
+            f"{name}: character begins returning faintly",
             f"{name}: character returns faintly for a loopable beat",
+            f"{name}: character settles back into tired start pose",
         ]
     else:
         frames = [
             f"{name}: readable starting expression",
+            f"{name}: anticipation beat before the action",
             f"{name}: action starts, body language changes clearly",
+            f"{name}: action escalates with a clearer silhouette",
             f"{name}: peak exaggerated reaction pose",
+            f"{name}: reaction starts settling",
             f"{name}: settle pose that loops back cleanly",
+            f"{name}: final loopable return pose",
         ]
     if frame_count <= len(frames):
         return frames[:frame_count]
@@ -323,8 +361,9 @@ def sheet_prompt_rules(layout: str) -> str:
         "No borders, no separator lines, no panel frames, no numbers. "
         "Same character identity, same outfit cues, same color anchors, same bounding box, and same pixel scale in every cell. "
         "The entire subject and any prop or effect must fit fully inside each cell with clear margin; nothing may cross a cell edge. "
-        "Use a 100% solid flat #FF00FF magenta background for clean local chroma-key removal. "
-        "No gradients in the background."
+        "Preferred background: transparent PNG background with no visible backdrop. "
+        "If the image tool cannot output transparency, use a 100% solid flat #FF00FF magenta background for local chroma-key removal. "
+        "Never use gradients, shadows, colored washes, textured backgrounds, or fake checkerboard transparency behind the cells."
     )
 
 
@@ -581,8 +620,12 @@ def infer_sheet_layout(path: Path, image: Image.Image, source_layout: str = "aut
         if re.search(rf"(^|[-_]){re.escape(layout)}($|[-_])", lowered):
             return layout
     ratio = image.width / image.height if image.height else 1
-    if ratio >= 3.3:
+    if ratio >= 7.0:
+        return "1x8"
+    if 3.3 <= ratio < 7.0:
         return "1x4"
+    if 1.8 <= ratio <= 2.3:
+        return "2x4"
     if 1.35 <= ratio <= 1.75:
         return "2x3"
     return "single"
@@ -616,6 +659,11 @@ def remove_chroma_background(image: Image.Image, color: tuple[int, int, int] = (
         if alpha and (exact_match or generated_magenta):
             pixels.append((red, green, blue, 0))
         else:
+            if alpha and red >= 160 and blue >= 140 and green <= 130 and min(red, blue) - green >= 50:
+                spill_strength = min(1.0, (min(red, blue) - green) / 180)
+                alpha = int(alpha * max(0.15, 1.0 - spill_strength))
+                red = int(red * (1.0 - 0.28 * spill_strength))
+                blue = int(blue * (1.0 - 0.36 * spill_strength))
             pixels.append((red, green, blue, alpha))
     rgba.putdata(pixels)
     return rgba

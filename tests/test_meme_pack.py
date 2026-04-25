@@ -99,16 +99,17 @@ def test_plan_pack_builds_direct_text_image_prompts():
     assert len(plan["items"]) == 24
     assert len(plan["image_prompts"]) == 24
     assert any("文献" in item["text"] for item in plan["items"])
-    assert plan["animation"]["source_layout"] == "1x4"
-    assert plan["animation"]["frames_per_sticker"] == 4
+    assert plan["animation"]["source_layout"] == "2x4"
+    assert plan["animation"]["frames_per_sticker"] == 8
 
     first_prompt = plan["image_prompts"][0]["prompt"]
     assert "no text" in first_prompt.lower()
     assert "no speech bubbles" in first_prompt.lower()
     assert "240x240" in first_prompt
-    assert "exactly 4 equal cells in a 1x4 grid" in first_prompt
+    assert "exactly 8 equal cells in a 2x4 grid" in first_prompt
     assert "same bounding box" in first_prompt.lower()
-    assert "Frame 1" in first_prompt and "Frame 4" in first_prompt
+    assert "transparent png background" in first_prompt.lower()
+    assert "Frame 1" in first_prompt and "Frame 8" in first_prompt
     assert "Claude-inspired warm geometric AI assistant mascot" in first_prompt
     assert plan["agent_instructions"][0].startswith("Call built-in image_gen")
 
@@ -140,7 +141,8 @@ def test_cli_plan_pack_writes_json(tmp_path: Path):
     assert data["style"] == "pixel-art"
     assert data["pack_size"] == 16
     assert len(data["image_prompts"]) == 16
-    assert data["animation"]["source_layout"] == "1x4"
+    assert data["animation"]["source_layout"] == "2x4"
+    assert data["animation"]["frames_per_sticker"] == 8
     assert "BUG" in json.dumps(data["items"], ensure_ascii=False)
 
 
@@ -174,6 +176,23 @@ def test_chroma_background_removes_magenta_variants():
 
     assert cleaned.getpixel((0, 0))[3] == 0
     assert cleaned.getpixel((1, 0))[3] == 255
+
+
+def test_plan_pack_can_request_explicit_1x8_layout():
+    meme_pack = load_module()
+
+    plan = meme_pack.plan_pack(
+        subject="round coral AI helper mascot",
+        persona="科研打工人",
+        style="clean-sticker",
+        pack_size=16,
+        mode="wechat",
+        animation_layout="1x8",
+    )
+
+    assert plan["animation"]["source_layout"] == "1x8"
+    assert plan["animation"]["frames_per_sticker"] == 8
+    assert "exactly 8 equal cells in a 1x8 grid" in plan["image_prompts"][0]["prompt"]
 
 
 def test_load_source_frames_splits_motion_sheet(tmp_path: Path):
@@ -214,6 +233,28 @@ def test_build_pack_uses_motion_sheet_frames_instead_of_bounce(tmp_path: Path):
     gif = Image.open(output / "wechat-submit" / "main" / "01.gif")
     assert getattr(gif, "is_animated", False)
     assert gif.n_frames == 4
+
+
+def test_build_pack_uses_8_frame_motion_sheet(tmp_path: Path):
+    meme_pack = load_module()
+    source = make_motion_sheets(tmp_path, 24, "2x4")
+    output = tmp_path / "pack"
+
+    result = meme_pack.build_pack(
+        source_dir=source,
+        output_dir=output,
+        entries=meme_pack.default_entries("科研打工人", 24),
+        mode="wechat",
+        source_layout="2x4",
+    )
+
+    first_item = result["items"][0]
+    gif = Image.open(output / "wechat-submit" / "main" / "01.gif")
+
+    assert first_item["animation_source"] == "sheet"
+    assert first_item["source_layout"] == "2x4"
+    assert first_item["source_frame_count"] == 8
+    assert gif.n_frames == 8
 
 
 def test_wrap_text_keeps_long_chinese_copy_inside_canvas():

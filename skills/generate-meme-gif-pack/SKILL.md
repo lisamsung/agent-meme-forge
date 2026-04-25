@@ -18,7 +18,7 @@ Infer or ask only when blocked:
 - `pack_size`: WeChat mode only allows 16 or 24. Default to 24.
 - `mode`: `wechat` default, or `self_use`.
 - `tone`: default `职场发疯但安全`.
-- `animation_layout`: default `1x4` motion sheet per sticker; also `2x2` or `2x3` for richer acting.
+- `animation_layout`: default `2x4` motion sheet per sticker for 8-frame smoother GIFs; also `1x4`, `1x8`, `2x2`, or `2x3`.
 
 If the user asks for 18 and wants WeChat upload, explain that WeChat albums use 16 or 24, then default to 24 unless they explicitly switch to `self_use`.
 
@@ -32,7 +32,9 @@ If the user asks for 18 and wants WeChat upload, explain that WeChat albums use 
 - Use `scripts/meme_pack.py plan-pack` to write the meme entries, character card, and per-sticker `image_gen` prompts.
 - Use built-in `image_gen` for raw no-text motion sheets. Use `scripts/meme_pack.py build-pack` only for deterministic processing.
 - Prefer one semantic motion sheet per sticker, not one static pose. Single-pose sources are allowed only for fast previews or fallback.
-- Motion sheets must use exact grid count, same character identity, same bounding box, same pixel scale, clear margins, no cell-edge crossing, no text, and a solid flat `#FF00FF` background when possible.
+- Motion sheets must use exact grid count, same character identity, same bounding box, same pixel scale, clear margins, no cell-edge crossing, and no text.
+- Prefer transparent PNG background directly from the image model. If transparency is not available, use a solid flat `#FF00FF` background as fallback; the processor removes it and cleans magenta edge spill.
+- Reject fake checkerboard transparency. It is just visible pixels, not alpha transparency.
 - WeChat output must include numbered upload files and readable named GIF files.
 
 ## Workflow
@@ -51,7 +53,7 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
   --pack-size 24 \
   --mode wechat \
   --pack-name AI科研打工搭子 \
-  --animation-layout 1x4 \
+  --animation-layout 2x4 \
   --output output/ai-research-plan.json
 ```
 
@@ -59,7 +61,7 @@ For a reference image, add `--reference-image path/to/reference.png` and describ
 3. Review the generated plan:
    - `character_card`: identity traits, silhouette, color anchors, expression range, forbidden drift.
    - `items`: meme names, captions, keywords, use scenes, motion hints.
-   - `animation`: sheet layout and frame count, default `1x4`.
+   - `animation`: sheet layout and frame count, default `2x4` / 8 frames.
    - `image_prompts`: one motion-sheet prompt per sticker for `image_gen`.
 4. Plan 24 entries:
    - 12 common high-frequency chat reactions.
@@ -67,10 +69,10 @@ For a reference image, add `--reference-image path/to/reference.png` and describ
    - 4 reusable filler reactions.
 5. Generate raw images:
    - Call built-in `image_gen` with the generated `image_prompts`.
-   - Default quality path: one `1x4` no-text motion sheet per sticker.
-   - Each sheet frame should be a real acting beat: start, action, peak reaction, loopable settle.
+   - Default quality path: one `2x4` no-text motion sheet per sticker.
+   - Each sheet frame should be a real acting beat: start, anticipation, action, escalation, peak reaction, rebound, settle, loopable return.
    - For a fast first pass only, one 4x6 contact sheet of static poses is acceptable; split it with `split-sheet` before `build-pack`.
-   - Use the prompt's solid flat `#FF00FF` background if possible; the processor removes it locally.
+   - Ask for transparent PNG background first. If the model/tool cannot output transparency, use a solid flat `#FF00FF` background; the processor removes it locally.
    - Generate and QC the first 3 motion sheets before continuing to all 24.
 6. Build the pack:
 
@@ -93,7 +95,7 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py build-pack \
   --pack-size 24 \
   --mode wechat \
   --pack-name 我的表情包 \
-  --source-layout 1x4
+  --source-layout 2x4
 ```
 
 7. QC before returning:

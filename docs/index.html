@@ -186,7 +186,7 @@
         <p class="eyebrow">Codex Skill · WeChat GIF Sticker Pack</p>
         <h1>agent-meme-forge</h1>
         <p class="lead">
-          从参考图或纯文字角色概念生成一套真的会被发送的动态表情包。先规划角色卡和 1x4 motion-sheet 提示词，再输出默认 24 个适配微信表情开放平台的 GIF。
+          从参考图或纯文字角色概念生成一套真的会被发送的动态表情包。先规划角色卡和 2x4 八帧 motion-sheet 提示词，再输出默认 24 个适配微信表情开放平台的 GIF。
         </p>
         <div class="actions">
           <a class="button" href="https://github.com/lisamsung/agent-meme-forge">GitHub</a>
@@ -211,11 +211,11 @@
           </div>
           <div class="card">
             <h3>主动生图</h3>
-            <p>支持 text_concept 直接起角色，自动写 24 条无文字 1x4 动作 sheet 提示词，再统一加中文梗。</p>
+            <p>支持 text_concept 直接起角色，自动写 24 条无文字 2x4 八帧动作 sheet 提示词，再统一加中文梗。</p>
           </div>
           <div class="card">
             <h3>真实帧动画</h3>
-            <p>迁移 sprite sheet 规则：精确网格、同尺度、同包围盒、不出格，processor 按真实帧生成 GIF。</p>
+            <p>迁移 sprite sheet 规则：精确网格、同尺度、同包围盒、不出格，processor 按 8 个真实帧生成 GIF。</p>
           </div>
         </section>
 
@@ -223,8 +223,8 @@
           <div>
             <h2>AI Mascot Sample</h2>
             <p>
-              当前推荐链路会先用 text_concept 生成原创 AI 吉祥物的 1x4 motion-sheet 提示词，
-              再调用 image_gen 为每个表情产出真实动作帧，
+              当前推荐链路会先用 text_concept 生成原创 AI 吉祥物的 2x4 八帧 motion-sheet 提示词，
+              再调用 image_gen 为每个表情产出透明优先的真实动作帧，
               之后由本地脚本切图、加中文梗、压成微信规格 GIF。
             </p>
             <p>
@@ -245,10 +245,10 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
   --style clean-sticker \
   --pack-size 24 \
   --mode wechat \
-  --animation-layout 1x4 \
+  --animation-layout 2x4 \
   --output output/ai-research-plan.json
 
-# Use the plan's image_prompts with Codex image_gen, save accepted 1x4 sheets to raw-frames/.
+# Use the plan's image_prompts with Codex image_gen, save accepted transparent 2x4 sheets to raw-frames/.
 # Static 4x6 contact sheets are preview-only. If image_gen returns one:
 python skills/generate-meme-gif-pack/scripts/meme_pack.py split-sheet \
   --input output/raw-sheets/ai-research-sheet.png \
@@ -263,7 +263,7 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py build-pack \
   --style clean-sticker \
   --pack-size 24 \
   --mode wechat \
-  --source-layout 1x4</code></pre>
+  --source-layout 2x4</code></pre>
         </section>
 
         <section>

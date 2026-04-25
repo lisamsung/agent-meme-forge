@@ -13,7 +13,7 @@
 - 已用四组样例验证：24 个科研打工人微信包、16 个码农微信包、18 个都市丽人自用包、24 个 image_gen AI 吉祥物微信包。
 - 已补微信公众号宣传稿：`docs/wechat-public-account-draft.md`。
 - 已修复 review 发现的问题：重复构建会清理旧上传文件、超长文案会省略并保持在画布内、GitHub Pages 中文文档链接不再 404。
-- 已补强“主动生图”链路：`plan-pack` 生成角色卡和逐条 `image_gen` motion-sheet prompt；`split-sheet` 支持把 4x6 预览图切成 24 个源图；`build-pack --source-layout 1x4` 支持真实 4 帧动作 sheet。
+- 已补强“主动生图”链路：`plan-pack` 生成角色卡和逐条 `image_gen` motion-sheet prompt；`split-sheet` 支持把 4x6 预览图切成 24 个源图；`build-pack --source-layout 2x4` 支持默认 8 帧动作 sheet；透明背景优先，`#FF00FF` 去背兜底。
 - GitHub 仓库与 Pages 已发布：`https://github.com/lisamsung/agent-meme-forge` / `https://lisamsung.github.io/agent-meme-forge/`。
 
 ## 开发入口
