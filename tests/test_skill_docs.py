@@ -55,6 +55,8 @@ def test_prompt_rules_support_direct_text_generation():
     assert "no official logo" in text
     assert "240x240" in text
     assert "same bounding box" in text
+    assert "micro-motion" in text
+    assert "in-between animation" in text
     assert "2x4" in text
     assert "1x4" in text
     assert "transparent PNG background" in text

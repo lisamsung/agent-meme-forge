@@ -6,7 +6,7 @@ import shlex
 from pathlib import Path
 
 import pytest
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageSequence
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -153,6 +153,9 @@ def test_plan_pack_builds_direct_text_image_prompts():
     assert "240x240" in first_prompt
     assert "exactly 8 equal cells in a 2x4 grid" in first_prompt
     assert "same bounding box" in first_prompt.lower()
+    assert "smooth in-between animation" in first_prompt
+    assert "avoid flicker" in first_prompt.lower()
+    assert "same silhouette and hand pose" in first_prompt
     assert "transparent png background" in first_prompt.lower()
     assert "Frame 1" in first_prompt and "Frame 8" in first_prompt
     assert "Claude-inspired warm geometric AI assistant mascot" in first_prompt
@@ -373,6 +376,21 @@ def test_chroma_background_removes_magenta_variants():
     assert cleaned.getpixel((1, 0))[3] == 255
 
 
+def test_chroma_background_decontaminates_magenta_edge_spill():
+    meme_pack = load_module()
+    image = Image.new("RGBA", (3, 1), (255, 0, 255, 255))
+    image.putpixel((1, 0), (190, 70, 178, 255))
+    image.putpixel((2, 0), (255, 120, 80, 255))
+
+    cleaned = meme_pack.remove_chroma_background(image)
+    red, green, blue, alpha = cleaned.getpixel((1, 0))
+
+    assert cleaned.getpixel((0, 0))[3] == 0
+    assert alpha < 150
+    assert not (red > 150 and blue > 130 and green < 90)
+    assert cleaned.getpixel((2, 0)) == (255, 120, 80, 255)
+
+
 def test_plan_pack_can_request_explicit_1x8_layout():
     meme_pack = load_module()
 
@@ -451,6 +469,9 @@ def test_build_pack_uses_8_frame_motion_sheet(tmp_path: Path):
     assert first_item["source_layout"] == "2x4"
     assert first_item["source_frame_count"] == 8
     assert gif.n_frames == 8
+    assert gif.info["duration"] >= 160
+    first_frame = next(ImageSequence.Iterator(gif)).convert("RGBA")
+    assert sum(1 for pixel in meme_pack.pixel_data(first_frame.getchannel("A")) if pixel == 0) > 0
 
 
 def test_qc_sheet_passes_clean_magenta_2x4_motion_sheet(tmp_path: Path):
@@ -519,6 +540,26 @@ def test_normalize_motion_frames_uses_common_scale(tmp_path: Path):
     assert all(frame.size == (240, 240) for frame in normalized)
     assert max(heights) <= 146
     assert min(box[3] for box in boxes) <= 164
+
+
+def test_normalize_motion_frames_preserves_relative_motion():
+    meme_pack = load_module()
+    frames = []
+    for left in [18, 24, 30, 36]:
+        frame = Image.new("RGBA", (96, 96), (255, 0, 255, 255))
+        draw = ImageDraw.Draw(frame)
+        draw.rounded_rectangle((left, 22, left + 34, 60), radius=10, fill=(20, 120, 220, 255))
+        frames.append(frame)
+
+    normalized, _ = meme_pack.normalize_motion_frames(frames)
+    centers = []
+    for frame in normalized:
+        box = frame.getbbox()
+        assert box is not None
+        centers.append((box[0] + box[2]) / 2)
+
+    assert centers == sorted(centers)
+    assert centers[-1] - centers[0] > 4
 
 
 def test_qc_sheet_rejects_fake_checkerboard_transparency(tmp_path: Path):

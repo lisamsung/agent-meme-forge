@@ -324,14 +324,14 @@ def animation_frames_for_entry(entry: MemeEntry, frame_count: int = 4) -> list[s
         ]
     elif any(token in motion for token in ["nod", "understand", "blink"]):
         frames = [
-            f"{name}: character stares blankly, eyes open",
-            f"{name}: character blinks slowly",
-            f"{name}: character looks slightly unsure",
-            f"{name}: character gives a tiny uncertain nod",
-            f"{name}: character nods a little too hard",
-            f"{name}: character returns to blank stare, loopable",
-            f"{name}: character blinks again with empty confidence",
-            f"{name}: character settles into the starting stare",
+            f"{name}: character holds the same blank polite pose, eyes open",
+            f"{name}: eyelids lower slightly, head and shoulders stay fixed",
+            f"{name}: slow blink closes, same silhouette and hand pose",
+            f"{name}: eyes reopen halfway, tiny uncertain smile",
+            f"{name}: very small nod down, only the head moves a little",
+            f"{name}: very small nod up, glasses shift subtly",
+            f"{name}: character returns to blank stare with empty confidence",
+            f"{name}: same as frame 1, loopable return pose",
         ]
     elif any(token in motion for token in ["recoil", "jump", "hit", "swoop"]):
         frames = [
@@ -402,6 +402,7 @@ def sheet_prompt_rules(layout: str) -> str:
         "No borders, no separator lines, no panel frames, no numbers. "
         "Same character identity, same outfit cues, same color anchors, same bounding box, and same pixel scale in every cell. "
         "The entire subject and any prop or effect must fit fully inside each cell with clear margin; nothing may cross a cell edge. "
+        "Make the frames feel like smooth in-between animation, not eight unrelated drawings: no camera cuts, no sudden pose swaps, no random new props, and keep the head anchor, shoulder line, outfit, and crop nearly fixed unless the frame plan explicitly moves them. "
         "Preferred background: real transparent PNG background with no visible backdrop when the current image interface supports transparency. "
         "If the image tool or API model cannot output true alpha transparency, use a 100% solid flat #FF00FF magenta background for local chroma-key removal. "
         "Never use gradients, shadows, colored washes, textured backgrounds, or fake checkerboard transparency behind the cells."
@@ -491,6 +492,7 @@ def image_prompt_for_entry(
         f"Acting direction: exaggerated readable reaction, {entry.motion}; make the emotion understandable before the caption is added.\n"
         f"{sheet_prompt_rules(animation_layout)}\n"
         f"Frame-by-frame acting plan:\n{frame_lines}\n"
+        "Motion continuity: use small readable in-between changes between neighboring frames; avoid flicker, teleporting hands, changing camera distance, changing face proportions, or adding/removing props that are not in the frame plan.\n"
         f"Tone: {tone}; funny, slightly unhinged, but safe for public WeChat review.\n"
         "Composition: one character only, centered, full character or large bust visible, oversized readable face, crisp silhouette, "
         "simple transparent-friendly background, no clutter, no tiny joke-critical props, high contrast, designed to read at 240x240.\n"
@@ -801,11 +803,13 @@ def remove_chroma_background(image: Image.Image, color: tuple[int, int, int] = (
         if alpha and (exact_match or generated_magenta):
             pixels.append((red, green, blue, 0))
         else:
-            if alpha and red >= 160 and blue >= 140 and green <= 130 and min(red, blue) - green >= 50:
-                spill_strength = min(1.0, (min(red, blue) - green) / 180)
-                alpha = int(alpha * max(0.15, 1.0 - spill_strength))
-                red = int(red * (1.0 - 0.28 * spill_strength))
-                blue = int(blue * (1.0 - 0.36 * spill_strength))
+            spill_delta = min(red, blue) - green
+            if alpha and red >= 145 and blue >= 120 and green <= 145 and spill_delta >= 28:
+                spill_strength = min(1.0, spill_delta / 150)
+                alpha = int(alpha * max(0.08, 1.0 - 1.18 * spill_strength))
+                neutral = max(0, min(255, int(green * 1.08)))
+                red = int(red * (1.0 - 0.58 * spill_strength) + neutral * (0.30 * spill_strength))
+                blue = int(blue * (1.0 - 0.66 * spill_strength) + neutral * (0.38 * spill_strength))
             pixels.append((red, green, blue, alpha))
     rgba.putdata(pixels)
     return rgba
@@ -1153,20 +1157,27 @@ def normalize_motion_frames(
     margin: int = 18,
 ) -> tuple[list[Image.Image], dict[str, object]]:
     cleaned_frames: list[Image.Image] = []
-    cropped_frames: list[Image.Image] = []
     bboxes: list[tuple[int, int, int, int]] = []
     component_reports: list[dict[str, object]] = []
     for raw in raw_frames:
         cleaned = clean_generated_frame_background(raw)
         filtered, component_report = filter_subject_components(cleaned)
         bbox = filtered.getbbox()
-        cleaned_frames.append(filtered)
         component_reports.append(component_report)
         if bbox:
             bboxes.append(bbox)
-            cropped_frames.append(filtered.crop(bbox))
-        else:
-            cropped_frames.append(filtered)
+        cleaned_frames.append(filtered)
+
+    if bboxes:
+        left = max(0, min(box[0] for box in bboxes) - 2)
+        upper = max(0, min(box[1] for box in bboxes) - 2)
+        right = min(cleaned_frames[0].width, max(box[2] for box in bboxes) + 2)
+        lower = min(cleaned_frames[0].height, max(box[3] for box in bboxes) + 2)
+        common_crop = (left, upper, right, lower)
+        cropped_frames = [frame.crop(common_crop) for frame in cleaned_frames]
+    else:
+        common_crop = None
+        cropped_frames = cleaned_frames
 
     max_width = max((frame.width for frame in cropped_frames if frame.width), default=1)
     max_height = max((frame.height for frame in cropped_frames if frame.height), default=1)
@@ -1190,6 +1201,7 @@ def normalize_motion_frames(
         "scale_normalized": True,
         "normalization_scale": round(scale, 4),
         "source_bbox_count": len(bboxes),
+        "common_crop": common_crop,
         "component_reports": component_reports,
     }
 
@@ -1244,19 +1256,37 @@ def caption_source_frames(raw_frames: list[Image.Image], text: str, font_path: s
     return frames
 
 
+def quantize_gif_frame_with_transparency(frame: Image.Image, colors: int) -> Image.Image:
+    rgba = frame.convert("RGBA")
+    alpha = rgba.getchannel("A")
+    matte = Image.new("RGBA", rgba.size, (255, 255, 255, 255))
+    rgb = Image.alpha_composite(matte, rgba).convert("RGB")
+    transparent_mask = alpha.point(lambda value: 255 if value <= 36 else 0)
+    rgb.paste((255, 255, 255), mask=transparent_mask)
+    palette_colors = max(2, min(255, colors) - 1)
+    quantized = rgb.quantize(colors=palette_colors, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE)
+    transparent_data = list(pixel_data(transparent_mask))
+    shifted_data = [0 if transparent_data[index] else min(255, value + 1) for index, value in enumerate(pixel_data(quantized))]
+    paletted = Image.new("P", rgba.size)
+    paletted.putdata(shifted_data)
+    palette = [255, 255, 255] + (quantized.getpalette() or [])[: 3 * 255]
+    palette.extend([0] * (768 - len(palette)))
+    paletted.putpalette(palette[:768])
+    paletted.info["transparency"] = 0
+    paletted.info["background"] = 0
+    return paletted
+
+
 def save_gif_under_limit(frames: list[Image.Image], path: Path, max_bytes: int = 500_000) -> int:
     attempts = [
-        {"frames": frames, "duration": 110, "colors": 128},
-        {"frames": frames[:4], "duration": 130, "colors": 96},
-        {"frames": frames[:3], "duration": 150, "colors": 64},
-        {"frames": frames[:2], "duration": 180, "colors": 48},
+        {"frames": frames, "duration": 170, "colors": 128},
+        {"frames": frames[:4], "duration": 190, "colors": 96},
+        {"frames": frames[:3], "duration": 210, "colors": 64},
+        {"frames": frames[:2], "duration": 240, "colors": 48},
     ]
     last_size = 0
     for attempt in attempts:
-        palette_frames = [
-            frame.convert("RGBA").quantize(colors=attempt["colors"], method=Image.Quantize.FASTOCTREE, dither=Image.Dither.NONE)
-            for frame in attempt["frames"]
-        ]
+        palette_frames = [quantize_gif_frame_with_transparency(frame, attempt["colors"]) for frame in attempt["frames"]]
         palette_frames[0].save(
             path,
             save_all=True,
@@ -1265,6 +1295,8 @@ def save_gif_under_limit(frames: list[Image.Image], path: Path, max_bytes: int =
             loop=0,
             optimize=True,
             disposal=2,
+            transparency=0,
+            background=0,
         )
         last_size = path.stat().st_size
         if last_size < max_bytes:
