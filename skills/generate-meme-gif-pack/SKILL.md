@@ -19,6 +19,7 @@ Infer or ask only when blocked:
 - `mode`: `wechat` default, or `self_use`.
 - `tone`: default `职场发疯但安全`.
 - `animation_layout`: default `2x4` motion sheet per sticker for 8-frame smoother GIFs; also `1x4`, `1x8`, `2x2`, or `2x3`.
+- `quality_mode`: default `submission`; also `standard` or `preview`. Submission requires strict QC, real `2x4` sheets, and no single-image bounce fallback.
 
 If the user asks for 18 and wants WeChat upload, explain that WeChat albums use 16 or 24, then default to 24 unless they explicitly switch to `self_use`.
 
@@ -35,6 +36,8 @@ If the user asks for 18 and wants WeChat upload, explain that WeChat albums use 
 - Motion sheets must use exact grid count, same character identity, same bounding box, same pixel scale, clear margins, no cell-edge crossing, and no text.
 - Prefer transparent PNG background directly from the image model. If transparency is not available, use a solid flat `#FF00FF` background as fallback; the processor removes it and cleans magenta edge spill.
 - Reject fake checkerboard transparency. It is just visible pixels, not alpha transparency.
+- Run `qc-sheet` on the first 3 generated sheets before generating all 24. Regenerate anything that fails layout, transparency, edge-touch, bbox drift, or readability checks.
+- For WeChat submission, use `--quality-mode submission --strict-qc`. Single-image `single_bounce` output is preview-only.
 - WeChat output must include numbered upload files and readable named GIF files.
 
 ## Workflow
@@ -54,6 +57,7 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
   --mode wechat \
   --pack-name AI科研打工搭子 \
   --animation-layout 2x4 \
+  --quality-mode submission \
   --output output/ai-research-plan.json
 ```
 
@@ -67,13 +71,22 @@ For a reference image, add `--reference-image path/to/reference.png` and describ
    - 12 common high-frequency chat reactions.
    - 8 persona-specific jokes.
    - 4 reusable filler reactions.
-5. Generate raw images:
-   - Call built-in `image_gen` with the generated `image_prompts`.
+5. Generate and QC raw images:
+   - Call built-in `image_gen` for the first 3 generated `image_prompts`, not all 24 at once.
    - Default quality path: one `2x4` no-text motion sheet per sticker.
    - Each sheet frame should be a real acting beat: start, anticipation, action, escalation, peak reaction, rebound, settle, loopable return.
    - For a fast first pass only, one 4x6 contact sheet of static poses is acceptable; split it with `split-sheet` before `build-pack`.
    - Ask for transparent PNG background first. If the model/tool cannot output transparency, use a solid flat `#FF00FF` background; the processor removes it locally.
-   - Generate and QC the first 3 motion sheets before continuing to all 24.
+   - Run `qc-sheet` on those first 3 motion sheets. If a sheet fails, use its `regenerate_hint` from the plan and generate again.
+   - Continue to the remaining 21 sheets only after the first 3 pass QC.
+
+```bash
+python skills/generate-meme-gif-pack/scripts/meme_pack.py qc-sheet \
+  --input output/raw-frames/01-收到离线-2x4.png \
+  --source-layout 2x4 \
+  --quality-mode submission \
+  --output output/qc/01-qc.json
+```
 6. Build the pack:
 
 Optional static contact-sheet split for previews:
@@ -95,7 +108,9 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py build-pack \
   --pack-size 24 \
   --mode wechat \
   --pack-name 我的表情包 \
-  --source-layout 2x4
+  --source-layout 2x4 \
+  --quality-mode submission \
+  --strict-qc
 ```
 
 7. QC before returning:
@@ -104,6 +119,7 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py build-pack \
    - Check every main GIF is 240x240 and below 500KB.
    - Check thumbnails are 120x120 and below 50KB.
    - Check the text is readable and not clipped.
+   - Inspect `qc_report.json`: every item should be `pass` for submission.
    - Reject weak jokes. Replace any entry that is only decorative or has no obvious send scenario.
 
 ## Output
@@ -120,6 +136,7 @@ output/my-pack/
   wechat-submit/banner.png
   manifest.json
   manifest.csv
+  qc_report.json
 ```
 
 Use `named-gifs/` for human sharing. Use `wechat-submit/` for WeChat upload.

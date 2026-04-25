@@ -7,11 +7,12 @@ import math
 import re
 import shutil
 import sys
+from collections import deque
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Iterable
 
-from PIL import Image, ImageDraw, ImageFont, ImageSequence
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont, ImageSequence
 
 
 WECHAT_SPEC = {
@@ -31,6 +32,7 @@ GENERATED_DIRS = [
 GENERATED_FILES = [
     Path("manifest.json"),
     Path("manifest.csv"),
+    Path("qc_report.json"),
     Path("wechat-submit") / "cover.png",
     Path("wechat-submit") / "icon.png",
     Path("wechat-submit") / "banner.png",
@@ -82,6 +84,34 @@ SHEET_LAYOUTS = {
 }
 
 DEFAULT_ANIMATION_LAYOUT = "2x4"
+QUALITY_MODES = {"preview", "standard", "submission"}
+CAPTION_RESERVED_HEIGHT = 76
+SUBJECT_CANVAS_SIZE = WECHAT_SPEC["main"]["size"]
+
+
+QC_LIMITS = {
+    "preview": {
+        "min_area_ratio": 0.004,
+        "center_drift_ratio": 0.60,
+        "size_drift_ratio": 0.85,
+        "require_multiframe": False,
+        "required_layout": None,
+    },
+    "standard": {
+        "min_area_ratio": 0.006,
+        "center_drift_ratio": 0.40,
+        "size_drift_ratio": 0.45,
+        "require_multiframe": True,
+        "required_layout": None,
+    },
+    "submission": {
+        "min_area_ratio": 0.008,
+        "center_drift_ratio": 0.30,
+        "size_drift_ratio": 0.25,
+        "require_multiframe": True,
+        "required_layout": "2x4",
+    },
+}
 
 
 @dataclass(frozen=True)
@@ -245,6 +275,16 @@ def parse_sheet_layout(layout: str) -> tuple[int, int]:
     return SHEET_LAYOUTS[layout]
 
 
+def parse_quality_mode(quality_mode: str) -> str:
+    if quality_mode not in QUALITY_MODES:
+        raise ValueError(f"Unsupported quality mode '{quality_mode}'. Use one of: {', '.join(sorted(QUALITY_MODES))}.")
+    return quality_mode
+
+
+def pixel_data(image: Image.Image):
+    return image.get_flattened_data() if hasattr(image, "get_flattened_data") else image.getdata()
+
+
 def animation_frames_for_entry(entry: MemeEntry, frame_count: int = 4) -> list[str]:
     motion = entry.motion.lower()
     name = entry.name
@@ -367,6 +407,41 @@ def sheet_prompt_rules(layout: str) -> str:
     )
 
 
+def visual_gag_for_entry(entry: MemeEntry) -> str:
+    motion = entry.motion.lower()
+    if any(token in motion for token in ["paper", "scroll", "document", "literature"]):
+        return "papers multiply around the character until the reaction reads before the caption appears"
+    if any(token in motion for token in ["typing", "terminal", "compile", "keyboard"]):
+        return "tiny frantic keyboard or screen glow drives the joke without any visible text"
+    if any(token in motion for token in ["shake", "tremble", "wobble", "panic"]):
+        return "small stress tremble escalates into a clear peak pose, then loops back"
+    if any(token in motion for token in ["droop", "flatline", "data", "chart"]):
+        return "a simple chart or prop physically deflates while the character tries to stay calm"
+    if any(token in motion for token in ["summon", "glow", "sparkle", "ritual"]):
+        return "a tight halo or glow appears close to the character and never crosses the cell edge"
+    if any(token in motion for token in ["fade", "sleep", "ghost"]):
+        return "the character visibly powers down or mentally exits, then returns to loop"
+    return "the face and body language carry the joke clearly at 240x240 before the caption is added"
+
+
+def qc_acceptance_for_entry(layout: str) -> str:
+    rows, cols = parse_sheet_layout(layout)
+    return (
+        f"Must be exactly {rows * cols} frames in a {layout} sheet; no fake checkerboard; "
+        "true alpha or solid #FF00FF only; subject visible in every cell; no edge touch; "
+        "same character identity, scale, and center across frames."
+    )
+
+
+def regenerate_hint_for_entry(entry: MemeEntry, layout: str) -> str:
+    caption = entry.text.replace("\n", " / ")
+    return (
+        f"Regenerate {entry.name} as a cleaner {layout} no-text motion sheet. "
+        f"Keep the caption idea '{caption}' out of the image. Use a larger readable face, fewer props, "
+        "more margin inside every cell, identical character scale, and transparent PNG or pure #FF00FF only."
+    )
+
+
 def build_character_card(subject: str, style: str, reference_image: str | None = None) -> str:
     subject = subject.strip()
     if not subject and not reference_image:
@@ -423,11 +498,19 @@ def image_prompt_for_entry(
     return {
         "index": index,
         "name": entry.name,
+        "meme_name": entry.name,
         "caption": entry.text,
+        "send_scene": entry.scene,
         "scene": entry.scene,
+        "motion_type": entry.motion,
         "motion": entry.motion,
         "animation_layout": animation_layout,
         "frames": frame_plan,
+        "8_frame_beats": frame_plan,
+        "visual_gag": visual_gag_for_entry(entry),
+        "negative_prompt": HARD_IMAGE_RULES,
+        "qc_acceptance": qc_acceptance_for_entry(animation_layout),
+        "regenerate_hint": regenerate_hint_for_entry(entry, animation_layout),
         "raw_image_filename": f"{index:02d}-{slug_filename(entry.name)}-{animation_layout}.png",
         "prompt": prompt,
     }
@@ -443,9 +526,11 @@ def plan_pack(
     reference_image: str | None = None,
     pack_name: str = "Agent Meme Pack",
     animation_layout: str = DEFAULT_ANIMATION_LAYOUT,
+    quality_mode: str = "submission",
 ) -> dict:
     validate_pack_size(pack_size, mode)
     parse_sheet_layout(animation_layout)
+    parse_quality_mode(quality_mode)
     entries = default_entries(persona, pack_size)
     character_card = build_character_card(subject, style, reference_image)
     prompts = [
@@ -462,26 +547,30 @@ def plan_pack(
         "pack_size": pack_size,
         "mode": mode,
         "tone": tone,
+        "quality_mode": quality_mode,
         "character_card": character_card,
         "animation": {
             "source_layout": animation_layout,
             "frames_per_sticker": parse_sheet_layout(animation_layout)[0] * parse_sheet_layout(animation_layout)[1],
+            "quality_mode": quality_mode,
             "rules": sheet_prompt_rules(animation_layout),
         },
         "items": [asdict(entry) for entry in entries],
         "image_prompts": prompts,
         "agent_instructions": [
-            "Call built-in image_gen once per image_prompt to generate one no-text motion sheet per sticker, or generate a small first-pass sample from the first 3 prompts before committing to all 24.",
+            "Call built-in image_gen for the first 3 image_prompts before committing to all 24; save each raw no-text motion sheet exactly as raw_image_filename.",
+            f"Run meme_pack.py qc-sheet --source-layout {animation_layout} --quality-mode {quality_mode} on those first 3 sheets and regenerate any fail or weak warning using regenerate_hint.",
+            "After the first 3 sheets pass QC, call image_gen once per remaining image_prompt to generate one no-text motion sheet per sticker.",
             "Save raw generated no-text images using raw_image_filename under a source directory such as output/raw-frames/<pack-slug>/.",
             "Reject and regenerate any raw sheet that contains text, speech bubbles, official logos, brand marks, wrong grid count, a tiny face, edge-crossing props, or a character that drifts from the character card.",
-            f"After raw sheets are accepted, run meme_pack.py build-pack with --source-layout {animation_layout} plus the same persona, style, pack_size, mode, and pack_name.",
+            f"After raw sheets are accepted, run meme_pack.py build-pack with --source-layout {animation_layout} --quality-mode {quality_mode} --strict-qc plus the same persona, style, pack_size, mode, and pack_name.",
         ],
         "processor_command": (
             "python skills/generate-meme-gif-pack/scripts/meme_pack.py build-pack "
             "--source-dir output/raw-frames/<pack-slug> "
             "--output-dir output/<pack-slug> "
             f"--persona {persona} --style {style} --pack-size {pack_size} --mode {mode} "
-            f"--pack-name {pack_name} --source-layout {animation_layout}"
+            f"--pack-name {pack_name} --source-layout {animation_layout} --quality-mode {quality_mode} --strict-qc"
         ),
     }
 
@@ -647,7 +736,7 @@ def split_sheet_frames(image: Image.Image, layout: str) -> list[Image.Image]:
 def remove_chroma_background(image: Image.Image, color: tuple[int, int, int] = (255, 0, 255), tolerance: int = 18) -> Image.Image:
     rgba = image.convert("RGBA")
     pixels = []
-    source_pixels = rgba.get_flattened_data() if hasattr(rgba, "get_flattened_data") else rgba.getdata()
+    source_pixels = pixel_data(rgba)
     target_red, target_green, target_blue = color
     for red, green, blue, alpha in source_pixels:
         exact_match = (
@@ -669,8 +758,327 @@ def remove_chroma_background(image: Image.Image, color: tuple[int, int, int] = (
     return rgba
 
 
+def soften_alpha_edges(image: Image.Image) -> Image.Image:
+    rgba = image.convert("RGBA")
+    alpha = rgba.getchannel("A")
+    softened = alpha.filter(ImageFilter.GaussianBlur(radius=0.45))
+    clipped = ImageChops.darker(alpha, softened)
+    rgba.putalpha(clipped.point(lambda value: 0 if value < 8 else min(255, value)))
+    return rgba
+
+
 def clean_generated_frame_background(image: Image.Image) -> Image.Image:
-    return remove_light_background(remove_chroma_background(image))
+    return soften_alpha_edges(remove_light_background(remove_chroma_background(image)))
+
+
+def _magenta_distance(red: int, green: int, blue: int) -> float:
+    return math.sqrt((red - 255) ** 2 + green**2 + (blue - 255) ** 2)
+
+
+def detect_checkerboard_background(image: Image.Image) -> bool:
+    sample = image.convert("RGBA").resize((48, 48), Image.Resampling.NEAREST)
+    labels: list[int] = []
+    light = 0
+    dark = 0
+    gray_total = 0
+    for red, green, blue, alpha in pixel_data(sample):
+        if alpha < 240 or max(red, green, blue) - min(red, green, blue) > 8:
+            labels.append(-1)
+            continue
+        if 232 <= red <= 246:
+            light += 1
+            gray_total += 1
+            labels.append(1)
+        elif 195 <= red <= 215:
+            dark += 1
+            gray_total += 1
+            labels.append(0)
+        else:
+            labels.append(-1)
+    total = sample.width * sample.height
+    if gray_total / total < 0.22 or min(light, dark) / total < 0.04:
+        return False
+    transitions = 0
+    comparable = 0
+    for y in range(sample.height):
+        for x in range(sample.width - 1):
+            left = labels[y * sample.width + x]
+            right = labels[y * sample.width + x + 1]
+            if left >= 0 and right >= 0:
+                comparable += 1
+                transitions += int(left != right)
+    for y in range(sample.height - 1):
+        for x in range(sample.width):
+            top = labels[y * sample.width + x]
+            bottom = labels[(y + 1) * sample.width + x]
+            if top >= 0 and bottom >= 0:
+                comparable += 1
+                transitions += int(top != bottom)
+    return comparable > 0 and transitions / comparable > 0.10
+
+
+def detect_background_mode(image: Image.Image) -> str:
+    rgba = image.convert("RGBA")
+    if detect_checkerboard_background(rgba):
+        return "checkerboard"
+    total = max(1, rgba.width * rgba.height)
+    transparent = magenta = solid_light = 0
+    for red, green, blue, alpha in pixel_data(rgba):
+        if alpha < 16:
+            transparent += 1
+        elif _magenta_distance(red, green, blue) < 48 or (red >= 210 and blue >= 190 and green <= 90):
+            magenta += 1
+        elif red >= 248 and green >= 248 and blue >= 248:
+            solid_light += 1
+    if transparent / total > 0.08:
+        return "transparent"
+    if magenta / total > 0.20:
+        return "magenta"
+    if solid_light / total > 0.25:
+        return "solid_light"
+    return "unknown"
+
+
+def connected_components(image: Image.Image, min_area: int = 1) -> list[dict[str, object]]:
+    alpha = image.convert("RGBA").getchannel("A")
+    pixels = alpha.load()
+    width, height = image.size
+    visited = [[False] * width for _ in range(height)]
+    components: list[dict[str, object]] = []
+
+    for y in range(height):
+        for x in range(width):
+            if visited[y][x] or pixels[x, y] == 0:
+                continue
+            queue: deque[tuple[int, int]] = deque([(x, y)])
+            visited[y][x] = True
+            coords: list[tuple[int, int]] = []
+            min_x = max_x = x
+            min_y = max_y = y
+            touches_edge = False
+            while queue:
+                cx, cy = queue.popleft()
+                coords.append((cx, cy))
+                min_x = min(min_x, cx)
+                min_y = min(min_y, cy)
+                max_x = max(max_x, cx)
+                max_y = max(max_y, cy)
+                if cx == 0 or cy == 0 or cx == width - 1 or cy == height - 1:
+                    touches_edge = True
+                for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    nx, ny = cx + dx, cy + dy
+                    if 0 <= nx < width and 0 <= ny < height and not visited[ny][nx] and pixels[nx, ny] > 0:
+                        visited[ny][nx] = True
+                        queue.append((nx, ny))
+            if len(coords) >= min_area:
+                components.append(
+                    {
+                        "area": len(coords),
+                        "bbox": (min_x, min_y, max_x + 1, max_y + 1),
+                        "touches_edge": touches_edge,
+                        "pixels": coords,
+                    }
+                )
+    components.sort(key=lambda item: int(item["area"]), reverse=True)
+    return components
+
+
+def _bbox_distance(a: tuple[int, int, int, int], b: tuple[int, int, int, int]) -> int:
+    ax0, ay0, ax1, ay1 = a
+    bx0, by0, bx1, by1 = b
+    dx = max(bx0 - ax1, ax0 - bx1, 0)
+    dy = max(by0 - ay1, ay0 - by1, 0)
+    return max(dx, dy)
+
+
+def filter_subject_components(
+    image: Image.Image,
+    min_component_area: int = 8,
+    keep_distance: int = 18,
+) -> tuple[Image.Image, dict[str, object]]:
+    rgba = image.convert("RGBA")
+    components = connected_components(rgba, min_area=1)
+    kept = [component for component in components if int(component["area"]) >= min_component_area]
+    if not kept:
+        return rgba, {"component_count": len(components), "kept_component_count": 0, "removed_component_count": len(components)}
+
+    largest = kept[0]
+    largest_bbox = tuple(largest["bbox"])
+    keep_components = [
+        component
+        for component in kept
+        if component is largest or _bbox_distance(largest_bbox, tuple(component["bbox"])) <= keep_distance
+    ]
+    keep_pixels = {coord for component in keep_components for coord in component["pixels"]}
+    output = Image.new("RGBA", rgba.size, (0, 0, 0, 0))
+    source = rgba.load()
+    target = output.load()
+    for x, y in keep_pixels:
+        target[x, y] = source[x, y]
+    return output, {
+        "component_count": len(components),
+        "kept_component_count": len(keep_components),
+        "removed_component_count": len(components) - len(keep_components),
+        "largest_component_area": int(largest["area"]),
+        "largest_component_bbox": list(largest_bbox),
+    }
+
+
+def bbox_touches_edge(bbox: tuple[int, int, int, int] | None, width: int, height: int, margin: int = 1) -> bool:
+    if not bbox:
+        return False
+    x0, y0, x1, y1 = bbox
+    return x0 <= margin or y0 <= margin or x1 >= width - margin or y1 >= height - margin
+
+
+def _median(values: list[float]) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    mid = len(ordered) // 2
+    if len(ordered) % 2:
+        return ordered[mid]
+    return (ordered[mid - 1] + ordered[mid]) / 2
+
+
+def bbox_drift_metrics(bboxes: list[tuple[int, int, int, int]], cell_size: tuple[int, int]) -> dict[str, float]:
+    if not bboxes:
+        return {"center_ratio": 1.0, "size_ratio": 1.0, "area_ratio": 1.0}
+    widths = [max(1, box[2] - box[0]) for box in bboxes]
+    heights = [max(1, box[3] - box[1]) for box in bboxes]
+    areas = [width * height for width, height in zip(widths, heights)]
+    centers_x = [(box[0] + box[2]) / 2 for box in bboxes]
+    centers_y = [(box[1] + box[3]) / 2 for box in bboxes]
+    med_width = max(1.0, _median([float(width) for width in widths]))
+    med_height = max(1.0, _median([float(height) for height in heights]))
+    med_area = max(1.0, _median([float(area) for area in areas]))
+    med_center_x = _median(centers_x)
+    med_center_y = _median(centers_y)
+    max_center_delta = max(math.hypot(cx - med_center_x, cy - med_center_y) for cx, cy in zip(centers_x, centers_y))
+    max_size_delta = max(
+        max(abs(width - med_width) / med_width, abs(height - med_height) / med_height)
+        for width, height in zip(widths, heights)
+    )
+    max_area_delta = max(abs(area - med_area) / med_area for area in areas)
+    return {
+        "center_ratio": round(max_center_delta / max(cell_size), 4),
+        "size_ratio": round(max(max_size_delta, max_area_delta), 4),
+        "area_ratio": round(max_area_delta, 4),
+    }
+
+
+def analyze_frames_for_qc(frames: list[Image.Image], quality_mode: str) -> tuple[list[dict[str, object]], list[str], list[str], dict[str, float], bool]:
+    limits = QC_LIMITS[quality_mode]
+    errors: list[str] = []
+    warnings: list[str] = []
+    frame_reports: list[dict[str, object]] = []
+    bboxes: list[tuple[int, int, int, int]] = []
+    edge_touch = False
+
+    for index, frame in enumerate(frames, start=1):
+        cleaned = clean_generated_frame_background(frame)
+        filtered, component_info = filter_subject_components(cleaned)
+        bbox = filtered.getbbox()
+        cell_area = max(1, filtered.width * filtered.height)
+        alpha_pixels = sum(1 for pixel in pixel_data(filtered.getchannel("A")) if pixel > 0)
+        area_ratio = alpha_pixels / cell_area
+        touches_edge = bbox_touches_edge(bbox, filtered.width, filtered.height, margin=1)
+        edge_touch = edge_touch or touches_edge
+        if bbox:
+            bboxes.append(bbox)
+        frame_report = {
+            "index": index,
+            "bbox": list(bbox) if bbox else None,
+            "alpha_area_ratio": round(area_ratio, 4),
+            "edge_touch": touches_edge,
+            **component_info,
+        }
+        frame_reports.append(frame_report)
+        if not bbox or area_ratio < float(limits["min_area_ratio"]):
+            errors.append(f"frame {index} has no readable subject or subject is too small")
+        if touches_edge:
+            errors.append(f"frame {index} subject touches the cell edge")
+
+    drift = bbox_drift_metrics(bboxes, frames[0].size if frames else (1, 1))
+    if len(bboxes) > 1 and drift["center_ratio"] > float(limits["center_drift_ratio"]):
+        errors.append(f"frame center drift is too high: {drift['center_ratio']}")
+    if len(bboxes) > 1 and drift["size_ratio"] > float(limits["size_drift_ratio"]):
+        errors.append(f"frame size drift is too high: {drift['size_ratio']}")
+    if len(bboxes) > 1 and quality_mode == "preview" and drift["size_ratio"] > 0.45:
+        warnings.append(f"preview frame size drift is visible: {drift['size_ratio']}")
+    return frame_reports, warnings, errors, drift, edge_touch
+
+
+def qc_sheet(
+    input_path: Path,
+    source_layout: str = "auto",
+    quality_mode: str = "submission",
+    strict: bool = True,
+) -> dict:
+    quality_mode = parse_quality_mode(quality_mode)
+    image = Image.open(input_path)
+    errors: list[str] = []
+    warnings: list[str] = []
+    background_mode = detect_background_mode(image.convert("RGBA"))
+    if background_mode == "checkerboard":
+        errors.append("fake checkerboard transparency detected")
+    elif background_mode == "solid_light":
+        warnings.append("solid light background detected; use true alpha or pure #FF00FF for submission-safe cleanup")
+    elif background_mode == "unknown":
+        warnings.append("background is not transparent, #FF00FF, or clean white; chroma cleanup may leave artifacts")
+
+    if getattr(image, "is_animated", False):
+        frames = [frame.convert("RGBA") for frame in ImageSequence.Iterator(image)]
+        detected_layout = "gif"
+        animation_source = "animated_gif"
+    else:
+        rgba = image.convert("RGBA")
+        detected_layout = infer_sheet_layout(input_path, rgba, source_layout)
+        if detected_layout == "single":
+            frames = [rgba]
+            animation_source = "single"
+        else:
+            frames = split_sheet_frames(rgba, detected_layout)
+            animation_source = "sheet"
+
+    limits = QC_LIMITS[quality_mode]
+    required_layout = limits["required_layout"]
+    if required_layout and detected_layout != required_layout:
+        errors.append(f"{quality_mode} mode requires {required_layout} motion sheets; got {detected_layout}")
+    if bool(limits["require_multiframe"]) and len(frames) <= 1:
+        errors.append("single_bounce sources are preview-only; use a real 2x4 motion sheet for submission")
+    if detected_layout in SHEET_LAYOUTS:
+        expected_count = parse_sheet_layout(detected_layout)[0] * parse_sheet_layout(detected_layout)[1]
+        if len(frames) != expected_count:
+            errors.append(f"expected {expected_count} frames for {detected_layout}, got {len(frames)}")
+    frame_reports, frame_warnings, frame_errors, drift, edge_touch = analyze_frames_for_qc(frames, quality_mode)
+    warnings.extend(frame_warnings)
+    errors.extend(frame_errors)
+
+    status = "fail" if errors else ("warning" if warnings else "pass")
+    if status == "warning" and strict and quality_mode == "submission":
+        errors.extend(warnings)
+        status = "fail"
+    return {
+        "input": str(input_path),
+        "status": status,
+        "quality_mode": quality_mode,
+        "strict": strict,
+        "animation_source": animation_source,
+        "source_layout": detected_layout,
+        "frame_count": len(frames),
+        "background_mode": background_mode,
+        "edge_touch": edge_touch,
+        "bbox_drift": drift,
+        "warnings": warnings,
+        "errors": errors,
+        "frames": frame_reports,
+    }
+
+
+def write_qc_report(path: Path, report: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def load_source_frames(path: Path, source_layout: str = "auto") -> tuple[list[Image.Image], str, str]:
@@ -683,6 +1091,54 @@ def load_source_frames(path: Path, source_layout: str = "auto") -> tuple[list[Im
     if layout == "single":
         return [clean_generated_frame_background(rgba)], "single", "single"
     return [clean_generated_frame_background(frame) for frame in split_sheet_frames(rgba, layout)], "sheet", layout
+
+
+def normalize_motion_frames(
+    raw_frames: list[Image.Image],
+    size: tuple[int, int] = SUBJECT_CANVAS_SIZE,
+    caption_reserved_height: int = CAPTION_RESERVED_HEIGHT,
+    margin: int = 18,
+) -> tuple[list[Image.Image], dict[str, object]]:
+    cleaned_frames: list[Image.Image] = []
+    cropped_frames: list[Image.Image] = []
+    bboxes: list[tuple[int, int, int, int]] = []
+    component_reports: list[dict[str, object]] = []
+    for raw in raw_frames:
+        cleaned = clean_generated_frame_background(raw)
+        filtered, component_report = filter_subject_components(cleaned)
+        bbox = filtered.getbbox()
+        cleaned_frames.append(filtered)
+        component_reports.append(component_report)
+        if bbox:
+            bboxes.append(bbox)
+            cropped_frames.append(filtered.crop(bbox))
+        else:
+            cropped_frames.append(filtered)
+
+    max_width = max((frame.width for frame in cropped_frames if frame.width), default=1)
+    max_height = max((frame.height for frame in cropped_frames if frame.height), default=1)
+    target_width = size[0] - margin * 2
+    target_height = size[1] - caption_reserved_height - margin
+    scale = min(target_width / max_width, target_height / max_height)
+    scale = max(0.1, scale)
+    normalized: list[Image.Image] = []
+    visual_height = size[1] - caption_reserved_height
+    for cropped in cropped_frames:
+        canvas = Image.new("RGBA", size, (0, 0, 0, 0))
+        if cropped.getbbox():
+            new_width = max(1, int(cropped.width * scale))
+            new_height = max(1, int(cropped.height * scale))
+            resized = cropped.resize((new_width, new_height), Image.Resampling.LANCZOS)
+            x = (size[0] - new_width) // 2
+            y = max(4, (visual_height - new_height) // 2)
+            canvas.alpha_composite(resized, (x, y))
+        normalized.append(canvas)
+    return normalized, {
+        "scale_normalized": True,
+        "normalization_scale": round(scale, 4),
+        "source_bbox_count": len(bboxes),
+        "component_reports": component_reports,
+    }
 
 
 def contain(image: Image.Image, size: tuple[int, int], margin: int = 18) -> Image.Image:
@@ -728,7 +1184,10 @@ def animated_frames(base: Image.Image, text: str, font_path: str, frame_count: i
 def caption_source_frames(raw_frames: list[Image.Image], text: str, font_path: str) -> list[Image.Image]:
     frames: list[Image.Image] = []
     for raw in raw_frames:
-        frames.append(draw_caption(contain(raw, WECHAT_SPEC["main"]["size"], margin=22), text, font_path))
+        if raw.size == WECHAT_SPEC["main"]["size"]:
+            frames.append(draw_caption(raw, text, font_path))
+        else:
+            frames.append(draw_caption(contain(raw, WECHAT_SPEC["main"]["size"], margin=22), text, font_path))
     return frames
 
 
@@ -784,7 +1243,7 @@ def source_images(source_dir: Path) -> list[Path]:
 def remove_light_background(image: Image.Image, threshold: int = 248) -> Image.Image:
     rgba = image.convert("RGBA")
     pixels = []
-    source_pixels = rgba.get_flattened_data() if hasattr(rgba, "get_flattened_data") else rgba.getdata()
+    source_pixels = pixel_data(rgba)
     for red, green, blue, alpha in source_pixels:
         if alpha and red >= threshold and green >= threshold and blue >= threshold:
             pixels.append((red, green, blue, 0))
@@ -863,7 +1322,11 @@ def build_pack(
     persona: str = "科研打工人",
     author: str = "Agent Meme Forge",
     source_layout: str = "auto",
+    quality_mode: str = "submission",
+    strict_qc: bool = True,
+    allow_qc_warnings: bool = False,
 ) -> dict:
+    quality_mode = parse_quality_mode(quality_mode)
     pack_size = validate_pack_size(len(entries), mode)
     if source_dir.resolve() == output_dir.resolve():
         raise ValueError("source-dir and output-dir must be different.")
@@ -880,15 +1343,29 @@ def build_pack(
     used_names: set[str] = set()
     manifest_items: list[dict] = []
     cached_sources: list[Image.Image] = []
+    qc_reports: list[dict] = []
 
     for index, entry in enumerate(entries, start=1):
         image_path = image_paths[(index - 1) % len(image_paths)]
+        qc_report = qc_sheet(image_path, source_layout, quality_mode, strict=strict_qc)
         raw_frames, animation_source, detected_layout = load_source_frames(image_path, source_layout)
         raw = raw_frames[0]
         cached_sources.append(raw)
+        preview_only = False
+        normalization_meta: dict[str, object] = {"scale_normalized": False}
+        if qc_report["status"] == "fail" and strict_qc:
+            errors = "; ".join(qc_report["errors"])
+            raise ValueError(f"{image_path.name} failed QC: {errors}")
+        if qc_report["status"] == "warning" and strict_qc and not allow_qc_warnings:
+            warnings = "; ".join(qc_report["warnings"])
+            raise ValueError(f"{image_path.name} has QC warnings: {warnings}")
         if len(raw_frames) > 1:
-            frames = caption_source_frames(raw_frames, entry.text, font_path)
+            normalized_frames, normalization_meta = normalize_motion_frames(raw_frames)
+            frames = caption_source_frames(normalized_frames, entry.text, font_path)
         else:
+            preview_only = True
+            if mode == "wechat" and quality_mode == "submission" and strict_qc:
+                raise ValueError("single_bounce sources are preview-only; use 2x4 motion sheets for WeChat submission.")
             base = contain(raw, WECHAT_SPEC["main"]["size"], margin=22)
             frames = animated_frames(base, entry.text, font_path)
             animation_source = "single_bounce"
@@ -903,6 +1380,19 @@ def build_pack(
         thumb_path = thumbs_dir / f"{index:02d}.png"
         thumb_size = save_png_under_limit(thumb, thumb_path, WECHAT_SPEC["thumb"]["max_bytes"])
 
+        qc_item = {
+            "index": index,
+            "source": str(image_path),
+            "qc_status": qc_report["status"],
+            "qc_warnings": qc_report["warnings"],
+            "qc_errors": qc_report["errors"],
+            "background_mode": qc_report["background_mode"],
+            "edge_touch": qc_report["edge_touch"],
+            "bbox_drift": qc_report["bbox_drift"],
+            "scale_normalized": bool(normalization_meta.get("scale_normalized", False)),
+            "preview_only": preview_only,
+        }
+        qc_reports.append({**qc_report, "index": index, "name": entry.name})
         manifest_items.append(
             {
                 "index": index,
@@ -920,6 +1410,7 @@ def build_pack(
                 "thumbnail": relative_to_output(thumb_path, output_dir),
                 "gif_bytes": gif_size,
                 "thumb_bytes": thumb_size,
+                **qc_item,
             }
         )
 
@@ -942,6 +1433,9 @@ def build_pack(
         "style": style,
         "persona": persona,
         "author": author,
+        "quality_mode": quality_mode,
+        "strict_qc": strict_qc,
+        "allow_qc_warnings": allow_qc_warnings,
         "wechat": {key: {"size": list(value["size"]), "max_bytes": value["max_bytes"], "format": value["format"]} for key, value in WECHAT_SPEC.items()},
         "assets": {
             "cover": {"path": relative_to_output(cover_path, output_dir), "bytes": cover_size},
@@ -951,6 +1445,20 @@ def build_pack(
         "items": manifest_items,
     }
     (output_dir / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    (output_dir / "qc_report.json").write_text(
+        json.dumps(
+            {
+                "pack_name": pack_name,
+                "quality_mode": quality_mode,
+                "strict_qc": strict_qc,
+                "status": "fail" if any(report["status"] == "fail" for report in qc_reports) else "pass",
+                "items": qc_reports,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
     with (output_dir / "manifest.csv").open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(
             handle,
@@ -968,11 +1476,22 @@ def build_pack(
                 "thumbnail",
                 "gif_bytes",
                 "thumb_bytes",
+                "qc_status",
+                "qc_warnings",
+                "qc_errors",
+                "background_mode",
+                "edge_touch",
+                "bbox_drift",
+                "scale_normalized",
+                "preview_only",
             ],
         )
         writer.writeheader()
         for item in manifest_items:
-            writer.writerow({field: item[field] for field in writer.fieldnames})
+            row = {field: item[field] for field in writer.fieldnames}
+            for key in ("qc_warnings", "qc_errors", "bbox_drift"):
+                row[key] = json.dumps(row[key], ensure_ascii=False)
+            writer.writerow(row)
     return manifest
 
 
@@ -1000,6 +1519,7 @@ def cmd_list_options() -> None:
                 "input_modes": ["reference_image", "text_concept"],
                 "animation_layouts": sorted(SHEET_LAYOUTS),
                 "source_layouts": ["auto", "single", *sorted(SHEET_LAYOUTS)],
+                "quality_modes": sorted(QUALITY_MODES),
                 "wechat_pack_sizes": [16, 24],
                 "self_use_pack_sizes": [18],
             },
@@ -1030,7 +1550,16 @@ def main(argv: list[str] | None = None) -> int:
     plan_parser.add_argument("--tone", default="职场发疯但安全")
     plan_parser.add_argument("--pack-name", default="Agent Meme Pack")
     plan_parser.add_argument("--animation-layout", default=DEFAULT_ANIMATION_LAYOUT, choices=sorted(SHEET_LAYOUTS))
+    plan_parser.add_argument("--quality-mode", default="submission", choices=sorted(QUALITY_MODES))
     plan_parser.add_argument("--output", required=True, type=Path)
+
+    qc_parser = sub.add_parser("qc-sheet", help="Inspect a raw motion sheet before building a WeChat pack.")
+    qc_parser.add_argument("--input", required=True, type=Path)
+    qc_parser.add_argument("--source-layout", default="auto")
+    qc_parser.add_argument("--quality-mode", default="submission", choices=sorted(QUALITY_MODES))
+    qc_parser.add_argument("--output", type=Path)
+    qc_parser.add_argument("--allow-warnings", action="store_true")
+    qc_parser.add_argument("--no-strict", dest="strict", action="store_false", default=True)
 
     split_parser = sub.add_parser("split-sheet", help="Split an image_gen contact sheet into numbered source PNGs.")
     split_parser.add_argument("--input", required=True, type=Path)
@@ -1054,6 +1583,10 @@ def main(argv: list[str] | None = None) -> int:
         default="auto",
         help="How to read source images: auto, single, or an explicit sheet layout such as 1x4, 2x2, 2x3.",
     )
+    build_parser.add_argument("--quality-mode", default="submission", choices=sorted(QUALITY_MODES))
+    build_parser.add_argument("--strict-qc", dest="strict_qc", action="store_true", default=True)
+    build_parser.add_argument("--no-strict-qc", dest="strict_qc", action="store_false")
+    build_parser.add_argument("--allow-qc-warnings", action="store_true")
 
     args = parser.parse_args(argv)
     if args.command == "list-options":
@@ -1074,8 +1607,23 @@ def main(argv: list[str] | None = None) -> int:
                 reference_image=args.reference_image or None,
                 pack_name=args.pack_name,
                 animation_layout=args.animation_layout,
+                quality_mode=args.quality_mode,
             )
             write_plan(args.output, plan)
+            return 0
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+    if args.command == "qc-sheet":
+        try:
+            report = qc_sheet(args.input, args.source_layout, args.quality_mode, strict=args.strict)
+            if args.output:
+                write_qc_report(args.output, report)
+            print(json.dumps(report, ensure_ascii=False, indent=2))
+            if report["status"] == "fail":
+                return 2
+            if report["status"] == "warning" and not args.allow_warnings:
+                return 1
             return 0
         except ValueError as exc:
             print(f"error: {exc}", file=sys.stderr)
@@ -1101,6 +1649,9 @@ def main(argv: list[str] | None = None) -> int:
                 args.persona,
                 args.author,
                 args.source_layout,
+                args.quality_mode,
+                args.strict_qc,
+                args.allow_qc_warnings,
             )
             return 0
         except ValueError as exc:

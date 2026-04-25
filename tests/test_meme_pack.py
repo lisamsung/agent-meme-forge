@@ -42,7 +42,7 @@ def make_motion_sheets(tmp_path: Path, count: int = 24, layout: str = "1x4") -> 
     source.mkdir()
     cell = 96
     for index in range(count):
-        sheet = Image.new("RGBA", (cols * cell, rows * cell), (255, 255, 255, 255))
+        sheet = Image.new("RGBA", (cols * cell, rows * cell), (255, 0, 255, 255))
         draw = ImageDraw.Draw(sheet)
         for frame in range(rows * cols):
             row = frame // cols
@@ -56,6 +56,49 @@ def make_motion_sheets(tmp_path: Path, count: int = 24, layout: str = "1x4") -> 
             draw.ellipse((x + 56 + offset // 2, y + 36, x + 63 + offset // 2, y + 43), fill=(255, 255, 255, 255))
         sheet.save(source / f"{index + 1:02d}-{layout}.png")
     return source
+
+
+def make_single_motion_sheet(
+    tmp_path: Path,
+    layout: str = "2x4",
+    *,
+    background: tuple[int, int, int, int] = (255, 0, 255, 255),
+    edge_touch: bool = False,
+    empty_frame: int | None = None,
+    scale_jump: bool = False,
+    checkerboard: bool = False,
+) -> Path:
+    meme_pack = load_module()
+    rows, cols = meme_pack.parse_sheet_layout(layout)
+    cell = 96
+    sheet = Image.new("RGBA", (cols * cell, rows * cell), background)
+    draw = ImageDraw.Draw(sheet)
+    if checkerboard:
+        colors = [(238, 238, 238, 255), (204, 204, 204, 255)]
+        tile = 12
+        for y in range(0, sheet.height, tile):
+            for x in range(0, sheet.width, tile):
+                draw.rectangle((x, y, x + tile - 1, y + tile - 1), fill=colors[((x // tile) + (y // tile)) % 2])
+    for frame in range(rows * cols):
+        if empty_frame is not None and frame == empty_frame:
+            continue
+        row = frame // cols
+        col = frame % cols
+        x = col * cell
+        y = row * cell
+        if edge_touch and frame == 0:
+            box = (x, y + 18, x + 54, y + 72)
+        elif scale_jump and frame == rows * cols - 1:
+            box = (x + 10, y + 8, x + 88, y + 88)
+        else:
+            drift = (frame % 4) * 3
+            box = (x + 25 + drift, y + 18, x + 72 + drift, y + 72)
+        draw.rounded_rectangle(box, radius=16, fill=(54, 116, 220, 255))
+        draw.ellipse((box[0] + 14, box[1] + 17, box[0] + 21, box[1] + 24), fill=(255, 255, 255, 255))
+        draw.ellipse((box[2] - 21, box[1] + 17, box[2] - 14, box[1] + 24), fill=(255, 255, 255, 255))
+    path = tmp_path / f"sheet-{layout}.png"
+    sheet.save(path)
+    return path
 
 
 def test_wechat_pack_size_accepts_only_16_or_24():
@@ -103,6 +146,7 @@ def test_plan_pack_builds_direct_text_image_prompts():
     assert plan["animation"]["frames_per_sticker"] == 8
 
     first_prompt = plan["image_prompts"][0]["prompt"]
+    first_prompt_plan = plan["image_prompts"][0]
     assert "no text" in first_prompt.lower()
     assert "no speech bubbles" in first_prompt.lower()
     assert "240x240" in first_prompt
@@ -111,6 +155,15 @@ def test_plan_pack_builds_direct_text_image_prompts():
     assert "transparent png background" in first_prompt.lower()
     assert "Frame 1" in first_prompt and "Frame 8" in first_prompt
     assert "Claude-inspired warm geometric AI assistant mascot" in first_prompt
+    assert first_prompt_plan["meme_name"] == first_prompt_plan["name"]
+    assert first_prompt_plan["send_scene"] == first_prompt_plan["scene"]
+    assert first_prompt_plan["motion_type"] == first_prompt_plan["motion"]
+    assert len(first_prompt_plan["8_frame_beats"]) == 8
+    assert first_prompt_plan["visual_gag"]
+    assert "no text" in first_prompt_plan["negative_prompt"]
+    assert "checkerboard" in first_prompt_plan["qc_acceptance"]
+    assert first_prompt_plan["regenerate_hint"]
+    assert plan["quality_mode"] == "submission"
     assert plan["agent_instructions"][0].startswith("Call built-in image_gen")
 
 
@@ -223,6 +276,7 @@ def test_build_pack_uses_motion_sheet_frames_instead_of_bounce(tmp_path: Path):
         persona="科研打工人",
         author="Agent Meme Forge",
         source_layout="auto",
+        quality_mode="preview",
     )
 
     first_item = result["items"][0]
@@ -255,6 +309,143 @@ def test_build_pack_uses_8_frame_motion_sheet(tmp_path: Path):
     assert first_item["source_layout"] == "2x4"
     assert first_item["source_frame_count"] == 8
     assert gif.n_frames == 8
+
+
+def test_qc_sheet_passes_clean_magenta_2x4_motion_sheet(tmp_path: Path):
+    meme_pack = load_module()
+    sheet = make_single_motion_sheet(tmp_path, "2x4")
+
+    report = meme_pack.qc_sheet(sheet, source_layout="2x4", quality_mode="submission", strict=True)
+
+    assert report["status"] == "pass"
+    assert report["frame_count"] == 8
+    assert report["background_mode"] == "magenta"
+    assert report["edge_touch"] is False
+    assert report["bbox_drift"]["center_ratio"] < 0.2
+
+
+def test_qc_sheet_passes_true_alpha_motion_sheet(tmp_path: Path):
+    meme_pack = load_module()
+    sheet = make_single_motion_sheet(tmp_path, "2x4", background=(0, 0, 0, 0))
+
+    report = meme_pack.qc_sheet(sheet, source_layout="2x4", quality_mode="submission", strict=True)
+
+    assert report["status"] == "pass"
+    assert report["background_mode"] == "transparent"
+
+
+def test_qc_sheet_warns_on_solid_light_background_for_submission(tmp_path: Path):
+    meme_pack = load_module()
+    sheet = make_single_motion_sheet(tmp_path, "2x4", background=(255, 255, 255, 255))
+
+    report = meme_pack.qc_sheet(sheet, source_layout="2x4", quality_mode="submission", strict=True)
+
+    assert report["status"] == "fail"
+    assert report["background_mode"] == "solid_light"
+    assert any("true alpha or pure #FF00FF" in error for error in report["errors"])
+
+
+def test_component_filter_removes_isolated_noise(tmp_path: Path):
+    meme_pack = load_module()
+    image = Image.new("RGBA", (80, 80), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    draw.rounded_rectangle((24, 20, 56, 58), radius=10, fill=(20, 120, 220, 255))
+    draw.rectangle((2, 2, 3, 3), fill=(255, 0, 0, 255))
+
+    cleaned, info = meme_pack.filter_subject_components(image, min_component_area=5)
+
+    assert info["removed_component_count"] == 1
+    assert cleaned.getpixel((2, 2))[3] == 0
+    assert cleaned.getbbox() == (24, 20, 57, 59)
+
+
+def test_normalize_motion_frames_uses_common_scale(tmp_path: Path):
+    meme_pack = load_module()
+    frames = []
+    for size in [40, 44, 50, 56, 60, 52, 46, 42]:
+        frame = Image.new("RGBA", (96, 96), (255, 0, 255, 255))
+        draw = ImageDraw.Draw(frame)
+        left = (96 - size) // 2
+        draw.rounded_rectangle((left, 18, left + size, 18 + size), radius=12, fill=(20, 120, 220, 255))
+        frames.append(frame)
+
+    normalized, meta = meme_pack.normalize_motion_frames(frames)
+    boxes = [frame.getbbox() for frame in normalized]
+    heights = [box[3] - box[1] for box in boxes]
+
+    assert meta["scale_normalized"] is True
+    assert all(frame.size == (240, 240) for frame in normalized)
+    assert max(heights) <= 146
+    assert min(box[3] for box in boxes) <= 164
+
+
+def test_qc_sheet_rejects_fake_checkerboard_transparency(tmp_path: Path):
+    meme_pack = load_module()
+    sheet = make_single_motion_sheet(tmp_path, "2x4", checkerboard=True)
+
+    report = meme_pack.qc_sheet(sheet, source_layout="2x4", quality_mode="submission", strict=True)
+
+    assert report["status"] == "fail"
+    assert any("checkerboard" in error for error in report["errors"])
+
+
+def test_qc_sheet_rejects_edge_touch_in_strict_mode(tmp_path: Path):
+    meme_pack = load_module()
+    sheet = make_single_motion_sheet(tmp_path, "2x4", edge_touch=True)
+
+    report = meme_pack.qc_sheet(sheet, source_layout="2x4", quality_mode="submission", strict=True)
+
+    assert report["status"] == "fail"
+    assert report["edge_touch"] is True
+
+
+def test_qc_sheet_rejects_excessive_bbox_drift(tmp_path: Path):
+    meme_pack = load_module()
+    sheet = make_single_motion_sheet(tmp_path, "2x4", scale_jump=True)
+
+    report = meme_pack.qc_sheet(sheet, source_layout="2x4", quality_mode="submission", strict=True)
+
+    assert report["status"] == "fail"
+    assert report["bbox_drift"]["size_ratio"] > 0.25
+
+
+def test_cli_qc_sheet_writes_report_json(tmp_path: Path):
+    meme_pack = load_module()
+    sheet = make_single_motion_sheet(tmp_path, "2x4")
+    output = tmp_path / "qc.json"
+
+    result = meme_pack.main(
+        [
+            "qc-sheet",
+            "--input",
+            str(sheet),
+            "--source-layout",
+            "2x4",
+            "--quality-mode",
+            "submission",
+            "--output",
+            str(output),
+        ]
+    )
+
+    data = json.loads(output.read_text(encoding="utf-8"))
+    assert result == 0
+    assert data["status"] == "pass"
+    assert data["source_layout"] == "2x4"
+
+
+def test_submission_mode_rejects_single_bounce_sources(tmp_path: Path):
+    meme_pack = load_module()
+    source = make_source_frames(tmp_path, 24)
+
+    with pytest.raises(ValueError, match="single_bounce.*preview"):
+        meme_pack.build_pack(
+            source_dir=source,
+            output_dir=tmp_path / "pack",
+            entries=meme_pack.default_entries("科研打工人", 24),
+            mode="wechat",
+            quality_mode="submission",
+        )
 
 
 def test_wrap_text_keeps_long_chinese_copy_inside_canvas():
@@ -294,7 +485,7 @@ def test_wrap_text_truncates_extreme_copy_to_fit_canvas():
 
 def test_build_pack_writes_named_and_wechat_outputs(tmp_path: Path):
     meme_pack = load_module()
-    source = make_source_frames(tmp_path, 24)
+    source = make_motion_sheets(tmp_path, 24, "2x4")
     output = tmp_path / "pack"
     entries = meme_pack.default_entries("科研打工人", 24)
 
@@ -322,6 +513,11 @@ def test_build_pack_writes_named_and_wechat_outputs(tmp_path: Path):
     assert len(manifest["items"]) == 24
     assert manifest["wechat"]["main"]["size"] == [240, 240]
     assert manifest["items"][0]["named_gif"].endswith(".gif")
+    assert manifest["items"][0]["qc_status"] == "pass"
+    assert manifest["items"][0]["background_mode"] in {"magenta", "transparent", "solid_light", "unknown"}
+    assert "bbox_drift" in manifest["items"][0]
+    assert manifest["items"][0]["scale_normalized"] is True
+    assert manifest["items"][0]["preview_only"] is False
 
     first_gif = Image.open(output / "wechat-submit" / "main" / "01.gif")
     assert first_gif.size == (240, 240)
@@ -334,7 +530,7 @@ def test_build_pack_writes_named_and_wechat_outputs(tmp_path: Path):
 
 def test_rebuilding_smaller_pack_cleans_stale_wechat_files(tmp_path: Path):
     meme_pack = load_module()
-    source = make_source_frames(tmp_path, 24)
+    source = make_motion_sheets(tmp_path, 24, "2x4")
     output = tmp_path / "pack"
 
     meme_pack.build_pack(

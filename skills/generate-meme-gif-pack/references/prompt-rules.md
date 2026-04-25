@@ -29,7 +29,8 @@ Then run `meme_pack.py plan-pack` and use its `image_prompts` with built-in `ima
 2. persona -> sendable meme list
 3. meme item -> no-text motion sheet prompt
 4. `image_gen` -> one semantic sheet per sticker
-5. `build-pack --source-layout 2x4` -> Chinese captions, GIF loops, WeChat package
+5. `qc-sheet --source-layout 2x4 --quality-mode submission` -> reject bad sheets before batch generation
+6. `build-pack --source-layout 2x4 --quality-mode submission --strict-qc` -> Chinese captions, GIF loops, WeChat package
 
 ## Raw Image Prompt Pattern
 
@@ -58,6 +59,31 @@ The high-quality path uses semantic motion sheets, adapted from `generate2dsprit
 - if transparent output is unavailable, use a 100% solid flat `#FF00FF` background so local processing can remove it
 - reject fake checkerboard transparency patterns; a checkerboard drawn into the pixels is not a transparent background
 - each frame should be a different acting beat, not a random new illustration
+
+## Motion Sheet QC Rules
+
+The processor now treats QC as a gate, not a suggestion. A raw sheet should pass these checks before it is allowed into a WeChat submission pack:
+
+- exact declared layout, especially `2x4` for `submission`
+- every cell has a readable subject
+- no visible checkerboard background
+- true alpha background, or a clean solid `#FF00FF` chroma key fallback
+- no subject, prop, paper, glow, sweat drop, or effect touches a cell edge
+- bbox center, width, height, and alpha area stay within a stable range across frames
+- no isolated edge debris or tiny leftover color noise after background removal
+- the final subject leaves the bottom caption zone clear
+
+Use the first three generated sheets as the quality probe:
+
+```bash
+python skills/generate-meme-gif-pack/scripts/meme_pack.py qc-sheet \
+  --input output/raw-frames/01-收到离线-2x4.png \
+  --source-layout 2x4 \
+  --quality-mode submission \
+  --output output/qc/01-qc.json
+```
+
+If QC fails, regenerate with a stricter prompt: larger face, fewer props, more margin, same bounding box, same pixel scale, no checkerboard, transparent PNG or pure `#FF00FF` only.
 
 Transparency note: use true alpha output when the image model or API supports it. As of the current OpenAI image-generation docs, `gpt-image-2` does not support `background: "transparent"`, so `#FF00FF` fallback plus local cleanup is still necessary for that model.
 
@@ -105,7 +131,8 @@ Hard negative rules: no text, no words, no Chinese characters, no Latin letters,
 - Do not depend on tiny props for the joke; text and expression carry the meme.
 - If identity drifts between frames, regenerate with stricter same bounding box / same pixel scale rules.
 - If speed matters, ask `image_gen` for an exact `4 columns by 6 rows` contact sheet of static poses, then run `meme_pack.py split-sheet --rows 6 --cols 4`. Keep generous whitespace so each crop contains one centered pose. This is a preview path, not the best final-quality path.
-- `build-pack` reads motion sheets with `--source-layout 2x4`, `1x8`, `1x4`, `2x2`, or `2x3`; single static sources fall back to a simple bounce loop.
+- `build-pack` reads motion sheets with `--source-layout 2x4`, `1x8`, `1x4`, `2x2`, or `2x3`; single static sources fall back to a simple bounce loop only in `preview` mode.
+- WeChat submission should use `build-pack --quality-mode submission --strict-qc`; this rejects `single_bounce`, fake checkerboard backgrounds, edge touch, excessive bbox drift, and weak frame sheets.
 
 ## Rejection Rules
 

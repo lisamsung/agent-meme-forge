@@ -161,6 +161,21 @@
         height: 240px;
         image-rendering: auto;
       }
+      .sample-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 14px;
+        align-items: flex-start;
+      }
+      .sample-row figure {
+        margin: 0;
+      }
+      .sample-row figcaption {
+        margin-top: 8px;
+        color: var(--muted);
+        font-size: 14px;
+        text-align: center;
+      }
       @media (max-width: 760px) {
         header {
           background:
@@ -217,6 +232,10 @@
             <h3>真实帧动画</h3>
             <p>迁移 sprite sheet 规则：精确网格、同尺度、同包围盒、不出格，processor 按 8 个真实帧生成 GIF。</p>
           </div>
+          <div class="card">
+            <h3>QC 门禁</h3>
+            <p>投稿模式默认跑 strict QC：假透明、边缘出格、空帧、bbox 乱跳和单图 bounce 都会被拒绝。</p>
+          </div>
         </section>
 
         <section class="showcase" aria-label="generated sample">
@@ -224,14 +243,28 @@
             <h2>AI Mascot Sample</h2>
             <p>
               当前推荐链路会先用 text_concept 生成原创 AI 吉祥物的 2x4 八帧 motion-sheet 提示词，
-              再调用 image_gen 为每个表情产出透明优先的真实动作帧，
-              之后由本地脚本切图、加中文梗、压成微信规格 GIF。
+              再调用 image_gen 为每个表情产出透明优先的真实动作帧。本地脚本会先跑 qc-sheet，
+              再切图、统一尺度、加中文梗、压成微信规格 GIF。
             </p>
             <p>
-              视觉形象可以参考熟悉的暖色 AI 助手气质，但输出要求是原创角色，不使用官方 logo 或品牌标识。
+              这里的 demo 是原创暖色 AI 助手，不使用官方 logo 或品牌标识。完整测试包为 24 张，
+              全部为 2x4 八帧 sheet，QC 状态为 pass，最大 GIF 约 70KB。
             </p>
           </div>
-          <img class="sample-gif" src="assets/ai-mascot-wenxianshan.gif" alt="AI mascot meme GIF sample: 文献又长出来了" />
+          <div class="sample-row">
+            <figure>
+              <img class="sample-gif" src="assets/ai-mascot-shoudao-lixian.gif" alt="AI mascot meme GIF sample: 收到但灵魂已离线" />
+              <figcaption>收到离线</figcaption>
+            </figure>
+            <figure>
+              <img class="sample-gif" src="assets/ai-mascot-jiazaizhong.gif" alt="AI mascot meme GIF sample: 别催我在加载" />
+              <figcaption>加载中</figcaption>
+            </figure>
+            <figure>
+              <img class="sample-gif" src="assets/ai-mascot-wenxianshan.gif" alt="AI mascot meme GIF sample: 文献又长出来了" />
+              <figcaption>文献山</figcaption>
+            </figure>
+          </div>
         </section>
 
         <section>
@@ -246,9 +279,16 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
   --pack-size 24 \
   --mode wechat \
   --animation-layout 2x4 \
+  --quality-mode submission \
   --output output/ai-research-plan.json
 
-# Use the plan's image_prompts with Codex image_gen, save accepted transparent 2x4 sheets to raw-frames/.
+# Use the first 3 image_prompts with Codex image_gen, save accepted transparent 2x4 sheets to raw-frames/.
+python skills/generate-meme-gif-pack/scripts/meme_pack.py qc-sheet \
+  --input raw-frames/01-收到离线-2x4.png \
+  --source-layout 2x4 \
+  --quality-mode submission \
+  --output output/qc/01-qc.json
+
 # Static 4x6 contact sheets are preview-only. If image_gen returns one:
 python skills/generate-meme-gif-pack/scripts/meme_pack.py split-sheet \
   --input output/raw-sheets/ai-research-sheet.png \
@@ -263,7 +303,9 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py build-pack \
   --style clean-sticker \
   --pack-size 24 \
   --mode wechat \
-  --source-layout 2x4</code></pre>
+  --source-layout 2x4 \
+  --quality-mode submission \
+  --strict-qc</code></pre>
         </section>
 
         <section>
@@ -275,6 +317,8 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py build-pack \
             <div class="pill"><strong>Cover</strong> 240x240 PNG, transparent</div>
             <div class="pill"><strong>Banner</strong> 750x400 PNG, no text</div>
             <div class="pill"><strong>Album</strong> 16 or 24 animated stickers</div>
+            <div class="pill"><strong>QC</strong> strict submission rejects checkerboard, edge touch, drift, and single bounce</div>
+            <div class="pill"><strong>Manifest</strong> includes qc_status, background_mode, bbox_drift</div>
           </div>
         </section>
       </div>

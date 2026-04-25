@@ -20,6 +20,9 @@ def test_skill_frontmatter_and_hard_rules_are_present():
     assert "image_gen" in text
     assert "motion sheet" in text
     assert "--source-layout" in text
+    assert "qc-sheet" in text
+    assert "--quality-mode submission" in text
+    assert "--strict-qc" in text
 
 
 def test_references_cover_wechat_prompt_persona_and_humor():
@@ -50,6 +53,8 @@ def test_prompt_rules_support_direct_text_generation():
     assert "1x4" in text
     assert "transparent PNG background" in text
     assert "checkerboard" in text
+    assert "QC" in text or "qc" in text
+    assert "edge" in text
 
 
 def test_pages_readme_link_stays_inside_project_or_github():
