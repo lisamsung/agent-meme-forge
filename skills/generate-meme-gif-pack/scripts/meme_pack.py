@@ -607,12 +607,13 @@ def remove_chroma_background(image: Image.Image, color: tuple[int, int, int] = (
     source_pixels = rgba.get_flattened_data() if hasattr(rgba, "get_flattened_data") else rgba.getdata()
     target_red, target_green, target_blue = color
     for red, green, blue, alpha in source_pixels:
-        if (
-            alpha
-            and abs(red - target_red) <= tolerance
+        exact_match = (
+            abs(red - target_red) <= tolerance
             and abs(green - target_green) <= tolerance
             and abs(blue - target_blue) <= tolerance
-        ):
+        )
+        generated_magenta = red >= 210 and blue >= 190 and green <= 90 and abs(red - blue) <= 90
+        if alpha and (exact_match or generated_magenta):
             pixels.append((red, green, blue, 0))
         else:
             pixels.append((red, green, blue, alpha))

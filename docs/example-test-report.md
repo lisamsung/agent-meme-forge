@@ -28,6 +28,8 @@
 
 The sample subject is an original warm cream-and-coral AI assistant mascot. It is only inspired by familiar AI-assistant aesthetics and explicitly avoids official logos, brand marks, and exact mascot copying.
 
+The published `ai-mascot-wenxianshan.gif` preview has been regenerated from a real `1x4` motion sheet and now contains 4 semantic frames instead of a single static pose bounce.
+
 ## Motion-Sheet Upgrade
 
 新版本新增高质量动画路径：
@@ -89,4 +91,4 @@ Review 后补充验证：
 - 超长中文文案会在最小字号下裁成可容纳的行数，并用省略号结尾，避免文字覆盖角色或越出 240x240 画布。
 - GitHub Pages 的中文文档按钮改为 GitHub README 链接，不再解析到站点根目录导致 404。
 
-最新自动化验证：`pytest -q` 共 16 项通过。
+最新自动化验证：`pytest -q` 共 17 项通过。

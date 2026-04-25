@@ -165,6 +165,17 @@ def test_split_sheet_writes_numbered_transparent_cells(tmp_path: Path):
     assert first.getbbox() is not None
 
 
+def test_chroma_background_removes_magenta_variants():
+    meme_pack = load_module()
+    image = Image.new("RGBA", (2, 1), (248, 20, 240, 255))
+    image.putpixel((1, 0), (255, 120, 80, 255))
+
+    cleaned = meme_pack.remove_chroma_background(image)
+
+    assert cleaned.getpixel((0, 0))[3] == 0
+    assert cleaned.getpixel((1, 0))[3] == 255
+
+
 def test_load_source_frames_splits_motion_sheet(tmp_path: Path):
     meme_pack = load_module()
     source = make_motion_sheets(tmp_path, 1, "1x4")
