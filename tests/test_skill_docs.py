@@ -40,6 +40,10 @@ def test_skill_frontmatter_and_hard_rules_are_present():
     assert "prop_position_jump" in text
     assert "Intake-first rule" in text
     assert "explicitly said to use defaults" in text
+    assert "intermediate raw keypose sheet" in text
+    assert "not final delivery" in text
+    assert "preview.html" in text
+    assert "named-gifs" in text
 
 
 def test_references_cover_wechat_prompt_persona_and_humor():
@@ -89,6 +93,9 @@ def test_prompt_rules_support_direct_text_generation():
     assert "local_effects" in text
     assert "face/head shape drift" in text
     assert "prop position jump" in text
+    assert "intermediate raw keypose sheet" in text
+    assert "not the final deliverable" in text
+    assert "final handoff" in text
 
 
 def test_pages_readme_link_stays_inside_project_or_github():

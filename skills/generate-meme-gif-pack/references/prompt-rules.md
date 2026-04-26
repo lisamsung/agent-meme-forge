@@ -34,6 +34,8 @@ Then run `meme_pack.py plan-pack` and use its `image_prompts` with built-in `ima
 7. `qc-sheet --source-mode keyposes --source-layout 2x2 --quality-mode submission` -> reject bad keypose sheets before batch generation
 8. `build-pack --source-mode keyposes --keypose-layout 2x2 --render-frame-count 16 --strict-qc --strict-continuity-qc` -> local motion rendering, Chinese captions, GIF loops, WeChat package
 
+A `2x2` source image is an intermediate raw keypose sheet, not the final deliverable. The final handoff should show `preview.html`, `named-gifs/*.gif`, and `wechat-submit/main/*.gif`; raw keypose PNGs are for QC and debugging only.
+
 ## Raw Image Prompt Pattern
 
 Use this structure for each sticker:
@@ -72,6 +74,8 @@ Default production uses keyposes, not full freehand animation sheets:
 - the model must not draw the final 16 frames; it should draw only stable source poses
 - same character identity, same outfit cues, same bounding box, same pixel scale, same prop continuity
 - no borders, separator lines, numbered cells, text, UI, speech bubbles, or fake checkerboard
+- a `2x2` or `1x4` keypose sheet is intermediate source material, not a finished sticker or preview result
+- do not present raw keypose PNGs to the user as the pack outcome; final handoff begins with `preview.html` and animated GIF files
 - preferred background for Codex `image_gen`: pure solid `#FF00FF`, unless the exported PNG is verified real alpha
 - local renderer creates deterministic holds, tiny scale/rotation changes, rebound, and loop closure
 - local renderer also adds template-controlled non-text comic effects through `local_effects`, so image_gen should not invent random one-frame effect props

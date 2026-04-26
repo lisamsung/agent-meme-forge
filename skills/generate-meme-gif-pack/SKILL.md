@@ -55,6 +55,8 @@ If the user asks for 18 and wants WeChat upload, explain that WeChat albums use 
 - If `image_gen` returns only an attachment with no usable local file path, stop and ask the user to save/export the attachment locally before QC. Do not pretend `qc-sheet` can read an unsaved chat attachment.
 - Prefer one semantic keypose sheet per sticker: 4 stable poses that the local processor can turn into a 12/16-frame loop. Single-pose sources are allowed only for fast previews or fallback.
 - Keypose sheets must use exact grid count, same character identity, same bounding box, same pixel scale, clear margins, no cell-edge crossing, and no text.
+- A `2x2` or `1x4` source image is an intermediate raw keypose sheet, not final delivery. Do not present the four-cell sheet as the finished sticker pack unless the user is explicitly debugging raw sources.
+- Final handoff must point to `preview.html`, `named-gifs/*.gif`, and `wechat-submit/main/*.gif`. The user-facing deliverable is a 240x240 animated GIF, not a four-cell sheet.
 - For subtle reactions such as blink, nod, loading, or blank stare, use `motion_profile=micro`: stable character anchor, no lateral drift, but medium-readable expression and small posture changes. A blink/nod should visibly change eyelids, pupils, glasses, shoulders, mouth, or head angle; it must not become a nearly static sticker.
 - For exaggerated reactions, use a stronger motion template and 16-frame local rendering first. Direct `4x4`/16-frame image_gen sheets are legacy/expert mode because they often create jumpy, unrelated frames.
 - Default high-frequency templates now include local non-text effects: `soul_offline` adds a multi-frame soul puff, `loading_loop` adds continuous loading dots, and `pretend_understand` adds sweat/awkward lines. These are represented in plan output as `local_effects` and protected by `qc_policy`.
@@ -113,9 +115,10 @@ For a reference image, add `--reference-image path/to/reference.png` and describ
 5. Generate and QC raw images:
    - MUST call built-in `image_gen` for the first 3 generated `image_prompts`, not all 24 at once, when the tool is available.
    - Do not stop after writing the plan; the plan is only an intermediate artifact.
-- Default quality path: one `2x2` no-text keypose sheet per sticker. The local processor renders the final 16-frame loop from a motion template such as `soul_offline`, `loading_loop`, or `pretend_understand`.
-- The processor adds template-level comic effects locally rather than asking image_gen to invent them. Keep the raw keyposes clean; let local rendering add soul puff, loading dots, sweat drops, or awkward lines across multiple frames.
-- Do not let image_gen freely invent 16 final frames unless you intentionally switch to legacy `--source-mode motion_sheet`. Four stable key poses with deterministic local motion are more reliable than 16 unrelated AI drawings.
+   - Default quality path: one `2x2` no-text keypose sheet per sticker. The local processor renders the final 16-frame loop from a motion template such as `soul_offline`, `loading_loop`, or `pretend_understand`.
+   - The processor adds template-level comic effects locally rather than asking image_gen to invent them. Keep the raw keyposes clean; let local rendering add soul puff, loading dots, sweat drops, or awkward lines across multiple frames.
+   - Do not let image_gen freely invent 16 final frames unless you intentionally switch to legacy `--source-mode motion_sheet`. Four stable key poses with deterministic local motion are more reliable than 16 unrelated AI drawings.
+   - Label raw `2x2`/`1x4` keypose PNGs as intermediate source material when showing progress. The final user preview starts at `preview.html`; the finished files live in `named-gifs/` and `wechat-submit/main/`.
    - For a fast first pass only, one 4x6 contact sheet of static poses is acceptable; split it with `split-sheet` before `build-pack`.
    - For Codex `image_gen`, ask for a pure solid `#FF00FF` background by default. Use transparent PNG only when the current tool can prove it exports real alpha to disk. If using ChatGPT Images directly or an API model that supports transparency, transparent PNG is acceptable; if using `gpt-image-2` or another model/tool that cannot output true alpha, use a solid flat `#FF00FF` background and let the processor remove it locally.
    - After each generated image is available as a local file, run `accept-generated` so it lands at the planned raw filename.
@@ -193,6 +196,7 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py build-pack \
 
 7. QC before returning:
    - For default packs, inspect `manifest.json`: `source_mode` should be `keyposes`, `animation_source` should be `keyposes`, `source_layout` should be `2x2`, `source_frame_count` should be `4`, and `rendered_frame_count` should be `16`.
+   - Return `preview.html`, `named-gifs/表情名.gif`, and `wechat-submit/main/01.gif ...` first. Raw keypose sheets are only QC/debug evidence and must not be described as final stickers.
    - Open several GIFs and verify the face/character still reads at 240px.
    - Check every main GIF is 240x240 and below 500KB.
    - Check thumbnails are 120x120 and below 50KB.

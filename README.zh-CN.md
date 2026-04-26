@@ -120,6 +120,8 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
 
 先把前 3 条 `image_prompts[].prompt` 交给 Codex 内置 `image_gen`，不要一口气做完 24 张。默认会要求生成一张 `2x2` keypose sheet，例如 `raw-frames/01-收到离线-2x2.png ... 24-你说得对-2x2.png`。每张 sheet 只含 4 个关键姿势，最终 16 帧由本地处理器按动作模板渲染。
 
+看到“四格图”是正常的：它只是中间 keypose 原图，不是最终表情包。最终给用户检查的是 `preview.html`，最终交付文件在 `named-gifs/表情名.gif` 和 `wechat-submit/main/01.gif ...`。
+
 每次 `image_gen` 产出后，先把生成图保存/导出为本地文件，再用 `accept-generated` 复制到计划里的标准文件名。这样后续 `qc-sheet` 和 `build-pack` 不会找错文件；同时 `generated-index.json` 会留下每张图的交接记录。
 
 ```bash
