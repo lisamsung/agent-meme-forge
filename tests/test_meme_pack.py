@@ -59,6 +59,35 @@ def make_motion_sheets(tmp_path: Path, count: int = 24, layout: str = "1x4") -> 
     return source
 
 
+def make_keypose_sheets(tmp_path: Path, count: int = 24, layout: str = "2x2") -> Path:
+    meme_pack = load_module()
+    rows, cols = meme_pack.parse_sheet_layout(layout)
+    source = tmp_path / f"keyposes-{layout}"
+    source.mkdir()
+    cell = 112
+    for index in range(count):
+        sheet = Image.new("RGBA", (cols * cell, rows * cell), (255, 0, 255, 255))
+        draw = ImageDraw.Draw(sheet)
+        for pose in range(rows * cols):
+            row = pose // cols
+            col = pose % cols
+            x = col * cell
+            y = row * cell
+            head_shift = [0, 1, -1, 0][pose % 4]
+            body_color = ((70 + index * 9) % 180, 112, 220, 255)
+            draw.rounded_rectangle((x + 34, y + 28 + head_shift, x + 78, y + 82 + head_shift), radius=16, fill=body_color)
+            draw.ellipse((x + 45, y + 46 + head_shift, x + 52, y + 53 + head_shift), fill=(255, 255, 255, 255))
+            draw.ellipse((x + 61, y + 46 + head_shift, x + 68, y + 53 + head_shift), fill=(255, 255, 255, 255))
+            if pose == 1:
+                draw.arc((x + 46, y + 54, x + 66, y + 70), 20, 160, fill=(255, 255, 255, 255), width=3)
+            if pose == 2:
+                draw.ellipse((x + 74, y + 18, x + 90, y + 34), fill=(170, 150, 235, 255))
+            if pose == 3:
+                draw.arc((x + 46, y + 58, x + 66, y + 72), 200, 340, fill=(255, 255, 255, 255), width=3)
+        sheet.save(source / f"{index + 1:02d}-{layout}.png")
+    return source
+
+
 def make_single_motion_sheet(
     tmp_path: Path,
     layout: str = "2x4",
@@ -143,30 +172,36 @@ def test_plan_pack_builds_direct_text_image_prompts():
     assert len(plan["items"]) == 24
     assert len(plan["image_prompts"]) == 24
     assert any("文献" in item["text"] for item in plan["items"])
-    assert plan["animation"]["source_layout"] == "2x4"
-    assert plan["animation"]["frames_per_sticker"] == 8
+    assert plan["animation"]["source_mode"] == "keyposes"
+    assert plan["animation"]["source_layout"] == "2x2"
+    assert plan["animation"]["keypose_count"] == 4
+    assert plan["animation"]["rendered_frame_count"] == 16
 
     first_prompt = plan["image_prompts"][0]["prompt"]
     first_prompt_plan = plan["image_prompts"][0]
     assert "no text" in first_prompt.lower()
     assert "no speech bubbles" in first_prompt.lower()
     assert "240x240" in first_prompt
-    assert "exactly 8 equal cells in a 2x4 grid" in first_prompt
+    assert "exactly 4 key poses in a 2x2 grid" in first_prompt
+    assert "Do not generate the final 16 animation frames" in first_prompt
     assert "same bounding box" in first_prompt.lower()
-    assert "smooth in-between animation" in first_prompt
+    assert "local processor will render the final 16-frame GIF" in first_prompt
     assert "medium-readable micro-motion" in first_prompt
     assert "no lateral drift" in first_prompt.lower()
-    assert "avoid flicker" in first_prompt.lower()
     assert "same silhouette and hand pose" in first_prompt
     assert "transparent png background" in first_prompt.lower()
     assert "For Codex image_gen runs, prefer a pure solid #FF00FF background" in first_prompt
-    assert "Frame 1" in first_prompt and "Frame 8" in first_prompt
+    assert "Key pose 1" in first_prompt and "Key pose 4" in first_prompt
     assert "Claude-inspired warm geometric AI assistant mascot" in first_prompt
     assert first_prompt_plan["meme_name"] == first_prompt_plan["name"]
     assert first_prompt_plan["send_scene"] == first_prompt_plan["scene"]
     assert first_prompt_plan["motion_type"] == first_prompt_plan["motion"]
     assert first_prompt_plan["motion_profile"] == "micro"
-    assert len(first_prompt_plan["8_frame_beats"]) == 8
+    assert first_prompt_plan["source_mode"] == "keyposes"
+    assert first_prompt_plan["motion_template"] == "soul_offline"
+    assert len(first_prompt_plan["keypose_beats"]) == 4
+    assert len(first_prompt_plan["timeline"]) == 16
+    assert "continuity_acceptance" in first_prompt_plan
     assert first_prompt_plan["visual_gag"]
     assert "meme_quality_bar" in plan
     assert "没人用的表情包就是垃圾表情包" in plan["meme_quality_bar"]["principle"]
@@ -207,7 +242,7 @@ def test_plan_pack_writes_shell_safe_commands_and_handoff():
     assert "accept-generated" in " ".join(plan["agent_instructions"])
 
 
-def test_plan_pack_can_request_16_frame_4x4_expressive_motion():
+def test_plan_pack_can_request_legacy_16_frame_4x4_motion_sheet():
     meme_pack = load_module()
 
     plan = meme_pack.plan_pack(
@@ -216,6 +251,7 @@ def test_plan_pack_can_request_16_frame_4x4_expressive_motion():
         style="clean-sticker",
         pack_size=16,
         mode="wechat",
+        source_mode="motion_sheet",
         animation_layout="4x4",
     )
 
@@ -230,6 +266,161 @@ def test_plan_pack_can_request_16_frame_4x4_expressive_motion():
     assert len(set(prompt_plan["frame_beats"])) > 10
     assert any("in-between" in beat for beat in prompt_plan["frame_beats"])
     assert prompt_plan["16_frame_beats"] == prompt_plan["frame_beats"]
+
+
+def test_render_keypose_motion_uses_template_to_create_16_frames(tmp_path: Path):
+    meme_pack = load_module()
+    source = make_keypose_sheets(tmp_path, 1, "2x2")
+    keyposes, kind, layout = meme_pack.load_source_frames(source / "01-2x2.png", source_layout="2x2")
+
+    frames, meta = meme_pack.render_keypose_motion(
+        keyposes,
+        motion_template="soul_offline",
+        frame_count=16,
+        motion_profile="micro",
+    )
+
+    assert kind == "sheet"
+    assert layout == "2x2"
+    assert len(frames) == 16
+    assert all(frame.size == (240, 240) for frame in frames)
+    assert meta["source_mode"] == "keyposes"
+    assert meta["motion_template"] == "soul_offline"
+    assert meta["rendered_frame_count"] == 16
+    assert meta["keypose_count"] == 4
+    assert meta["scale_normalized"] is True
+
+
+def test_motion_template_plan_exposes_effects_and_qc_policy():
+    meme_pack = load_module()
+
+    entries = [
+        meme_pack.MemeEntry("收到离线", "收到\n但灵魂已离线", "收到", "缓冲回复", "eyes blink and tiny nod"),
+        meme_pack.MemeEntry("加载中", "别催\n我在加载", "稍等", "被催进度", "loading wobble"),
+        meme_pack.MemeEntry("先装懂", "我先\n装懂一下", "懂了", "没听懂先稳住", "confused nod"),
+    ]
+
+    plans = [meme_pack.motion_template_plan_for_entry(entry, 16) for entry in entries]
+
+    assert [plan["motion_template"] for plan in plans] == ["soul_offline", "loading_loop", "pretend_understand"]
+    assert plans[0]["local_effects"] == ["soul_puff"]
+    assert plans[1]["local_effects"] == ["loading_dots"]
+    assert plans[2]["local_effects"] == ["sweat_drop", "awkward_lines"]
+    assert all("min_prop_lifetime" in plan["qc_policy"] for plan in plans)
+
+
+def test_continuity_qc_rejects_area_and_loop_jumps():
+    meme_pack = load_module()
+    frames = []
+    for index in range(16):
+        frame = Image.new("RGBA", (240, 240), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(frame)
+        if index == 8:
+            draw.rounded_rectangle((30, 10, 210, 176), radius=32, fill=(30, 120, 220, 255))
+        elif index == 15:
+            draw.rounded_rectangle((126, 58, 172, 118), radius=12, fill=(220, 80, 80, 255))
+        else:
+            draw.rounded_rectangle((88, 48, 152, 128), radius=18, fill=(30, 120, 220, 255))
+        frames.append(frame)
+
+    report = meme_pack.continuity_qc(frames, quality_mode="submission", motion_profile="micro")
+
+    assert report["status"] == "fail"
+    assert any("area jump" in error for error in report["errors"])
+    assert any("loop closure" in error for error in report["errors"])
+
+
+def test_continuity_qc_rejects_fake_animation_with_low_motion_energy():
+    meme_pack = load_module()
+    frame = Image.new("RGBA", (240, 240), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(frame)
+    draw.rounded_rectangle((88, 48, 152, 128), radius=18, fill=(30, 120, 220, 255))
+
+    report = meme_pack.continuity_qc([frame.copy() for _ in range(16)], quality_mode="submission", motion_profile="micro")
+
+    assert report["status"] == "fail"
+    assert any("motion energy" in error for error in report["errors"])
+
+
+def test_continuity_qc_rejects_one_frame_prop_flash():
+    meme_pack = load_module()
+    frames = []
+    for index in range(16):
+        frame = Image.new("RGBA", (240, 240), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(frame)
+        x_shift = [0, 1, 0, -1][index % 4]
+        draw.rounded_rectangle((82 + x_shift, 42, 158 + x_shift, 138), radius=18, fill=(30, 120, 220, 255))
+        if index == 8:
+            draw.ellipse((170, 50, 205, 85), fill=(255, 200, 0, 255))
+        frames.append(frame)
+
+    report = meme_pack.continuity_qc(frames, quality_mode="submission", motion_profile="standard")
+
+    assert report["status"] == "fail"
+    assert any("one frame" in error for error in report["errors"])
+    assert report["metrics"]["transient_component_frames"] == [9]
+
+
+def test_continuity_qc_rejects_prop_position_jump():
+    meme_pack = load_module()
+    frames = []
+    for index in range(16):
+        frame = Image.new("RGBA", (240, 240), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(frame)
+        draw.rounded_rectangle((82, 42, 158, 138), radius=18, fill=(30, 120, 220, 255))
+        x0 = 28 if index < 8 else 182
+        draw.ellipse((x0, 54, x0 + 34, 88), fill=(255, 200, 0, 255))
+        frames.append(frame)
+
+    report = meme_pack.continuity_qc(frames, quality_mode="submission", motion_profile="standard")
+
+    assert report["status"] == "fail"
+    assert any("prop position jump" in error for error in report["errors"])
+    assert report["metrics"]["prop_position_jump"] > 80
+
+
+def test_continuity_qc_rejects_head_shape_drift():
+    meme_pack = load_module()
+    frames = []
+    for index in range(16):
+        frame = Image.new("RGBA", (240, 240), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(frame)
+        draw.rounded_rectangle((86, 92, 154, 158), radius=18, fill=(30, 120, 220, 255))
+        if index == 8:
+            draw.ellipse((58, 28, 182, 86), fill=(30, 120, 220, 255))
+        else:
+            draw.ellipse((82, 26, 158, 96), fill=(30, 120, 220, 255))
+        frames.append(frame)
+
+    report = meme_pack.continuity_qc(frames, quality_mode="submission", motion_profile="standard")
+
+    assert report["status"] == "fail"
+    assert any("face/head shape drift" in error for error in report["errors"])
+    assert report["metrics"]["face_shape_drift_score"] > 0.25
+
+
+def test_continuity_qc_allows_stable_head_with_continuous_loading_effect():
+    meme_pack = load_module()
+    frames = []
+    for index in range(16):
+        frame = Image.new("RGBA", (240, 240), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(frame)
+        draw.rounded_rectangle((88, 86, 152, 150), radius=18, fill=(30, 120, 220, 255))
+        draw.ellipse((88, 32, 152, 96), fill=(30, 120, 220, 255))
+        dot_x = 165 + (index % 3) * 9
+        draw.ellipse((dot_x, 48, dot_x + 7, 55), fill=(80, 130, 255, 255))
+        frames.append(frame)
+
+    report = meme_pack.continuity_qc(
+        frames,
+        quality_mode="submission",
+        motion_profile="micro",
+        motion_template="loading_loop",
+    )
+
+    assert report["status"] == "pass"
+    assert report["metrics"]["prop_lifecycle_errors"] == []
+    assert report["metrics"]["face_shape_drift_score"] < 0.12
 
 
 def test_accept_generated_copies_image_to_planned_raw_filename(tmp_path: Path):
@@ -309,8 +500,9 @@ def test_cli_plan_pack_writes_json(tmp_path: Path):
     assert data["style"] == "pixel-art"
     assert data["pack_size"] == 16
     assert len(data["image_prompts"]) == 16
-    assert data["animation"]["source_layout"] == "2x4"
-    assert data["animation"]["frames_per_sticker"] == 8
+    assert data["animation"]["source_mode"] == "keyposes"
+    assert data["animation"]["source_layout"] == "2x2"
+    assert data["animation"]["rendered_frame_count"] == 16
     assert "BUG" in json.dumps(data["items"], ensure_ascii=False)
 
 
@@ -326,7 +518,7 @@ def test_plan_wizard_collects_text_concept_choices(tmp_path: Path):
             "1",  # wechat
             "2",  # 16
             "1",  # submission
-            "",  # forced/default 2x4
+            "",  # forced/default 2x2 keyposes
             "猫猫码农包",
             "",  # default tone
             str(output),
@@ -343,7 +535,8 @@ def test_plan_wizard_collects_text_concept_choices(tmp_path: Path):
     assert plan["style"] == "pixel-art"
     assert plan["pack_size"] == 16
     assert plan["quality_mode"] == "submission"
-    assert plan["animation"]["source_layout"] == "2x4"
+    assert plan["animation"]["source_mode"] == "keyposes"
+    assert plan["animation"]["source_layout"] == "2x2"
     assert any("先生成前 3 张" in message for message in messages)
 
 
@@ -437,6 +630,7 @@ def test_plan_pack_can_request_explicit_1x8_layout():
         style="clean-sticker",
         pack_size=16,
         mode="wechat",
+        source_mode="motion_sheet",
         animation_layout="1x8",
     )
 
@@ -472,8 +666,10 @@ def test_build_pack_uses_motion_sheet_frames_instead_of_bounce(tmp_path: Path):
         style="clean-sticker",
         persona="科研打工人",
         author="Agent Meme Forge",
+        source_mode="motion_sheet",
         source_layout="auto",
         quality_mode="preview",
+        strict_continuity_qc=False,
     )
 
     first_item = result["items"][0]
@@ -496,7 +692,9 @@ def test_build_pack_uses_8_frame_motion_sheet(tmp_path: Path):
         output_dir=output,
         entries=meme_pack.default_entries("科研打工人", 24),
         mode="wechat",
+        source_mode="motion_sheet",
         source_layout="2x4",
+        strict_continuity_qc=False,
     )
 
     first_item = result["items"][0]
@@ -507,7 +705,8 @@ def test_build_pack_uses_8_frame_motion_sheet(tmp_path: Path):
     assert first_item["source_frame_count"] == 8
     assert first_item["motion_profile"] == "micro"
     assert first_item["alignment_mode"] == "stable"
-    assert gif.n_frames == 8
+    assert first_item["rendered_frame_count"] == 8
+    assert 6 <= gif.n_frames <= 8
     assert gif.info["duration"] >= 160
     first_frame = next(ImageSequence.Iterator(gif)).convert("RGBA")
     assert sum(1 for pixel in meme_pack.pixel_data(first_frame.getchannel("A")) if pixel == 0) > 0
@@ -523,7 +722,9 @@ def test_build_pack_uses_16_frame_4x4_motion_sheet_when_under_limit(tmp_path: Pa
         output_dir=output,
         entries=meme_pack.default_entries("都市丽人", 16),
         mode="wechat",
+        source_mode="motion_sheet",
         source_layout="4x4",
+        strict_continuity_qc=False,
     )
 
     first_item = result["items"][0]
@@ -532,9 +733,105 @@ def test_build_pack_uses_16_frame_4x4_motion_sheet_when_under_limit(tmp_path: Pa
     assert first_item["animation_source"] == "sheet"
     assert first_item["source_layout"] == "4x4"
     assert first_item["source_frame_count"] == 16
-    assert first_item["gif_frame_count"] == 16
+    assert first_item["rendered_frame_count"] == 16
+    assert first_item["gif_frame_count"] >= 15
     assert 140 <= first_item["gif_duration_ms"] <= 160
+    assert gif.n_frames >= 15
+
+
+def test_build_pack_keyposes_renders_16_frame_gif_and_manifest_fields(tmp_path: Path):
+    meme_pack = load_module()
+    source = make_keypose_sheets(tmp_path, 24, "2x2")
+    output = tmp_path / "pack"
+
+    result = meme_pack.build_pack(
+        source_dir=source,
+        output_dir=output,
+        entries=meme_pack.default_entries("科研打工人", 24),
+        mode="wechat",
+        source_mode="keyposes",
+        keypose_layout="2x2",
+        render_frame_count=16,
+        strict_continuity_qc=True,
+    )
+
+    first_item = result["items"][0]
+    gif = Image.open(output / "wechat-submit" / "main" / "01.gif")
+
+    assert first_item["source_mode"] == "keyposes"
+    assert first_item["animation_source"] == "keyposes"
+    assert first_item["source_layout"] == "2x2"
+    assert first_item["source_frame_count"] == 4
+    assert first_item["motion_template"] == "soul_offline"
+    assert first_item["rendered_frame_count"] == 16
+    assert first_item["continuity_qc_status"] == "pass"
+    assert first_item["continuity_errors"] == []
+    assert "loop_closure_score" in first_item
+    assert "motion_energy_score" in first_item
+    assert "prop_lifecycle_errors" in first_item
+    assert "prop_position_jump" in first_item
+    assert "prop_area_jump" in first_item
+    assert "face_shape_drift_score" in first_item
+    assert "max_head_center_step_px" in first_item
     assert gif.n_frames == 16
+
+
+def test_build_pack_submission_requires_one_source_per_entry(tmp_path: Path):
+    meme_pack = load_module()
+    source = make_keypose_sheets(tmp_path, 3, "2x2")
+    output = tmp_path / "pack"
+
+    with pytest.raises(ValueError, match="build-preview"):
+        meme_pack.build_pack(
+            source_dir=source,
+            output_dir=output,
+            entries=meme_pack.default_entries("科研打工人", 24),
+            mode="wechat",
+            source_mode="keyposes",
+            keypose_layout="2x2",
+            quality_mode="submission",
+            strict_continuity_qc=True,
+        )
+
+
+def test_build_preview_uses_first_sources_without_reuse_and_writes_html(tmp_path: Path):
+    meme_pack = load_module()
+    source = make_keypose_sheets(tmp_path, 3, "2x2")
+    output = tmp_path / "preview"
+
+    result = meme_pack.build_preview(
+        source_dir=source,
+        output_dir=output,
+        entries=meme_pack.default_entries("科研打工人", 24),
+        pack_name="前三张预览",
+        persona="科研打工人",
+        style="clean-sticker",
+        source_mode="keyposes",
+        keypose_layout="2x2",
+        render_frame_count=16,
+        quality_mode="submission",
+        strict_qc=True,
+        strict_continuity_qc=True,
+        preview_count=3,
+    )
+
+    assert result["mode"] == "preview"
+    assert result["pack_size"] == 3
+    assert [Path(item["source"]).name for item in result["items"]] == ["01-2x2.png", "02-2x2.png", "03-2x2.png"]
+    assert {path.name for path in (output / "named-gifs").glob("*.gif")} == {
+        f"{item['name']}.gif" for item in result["items"]
+    }
+    assert result["items"][2]["caption_reserved_height"] < meme_pack.CAPTION_RESERVED_HEIGHT
+    assert (
+        result["items"][2]["continuity_metrics"]["caption_reserved_height"]
+        == result["items"][2]["caption_reserved_height"]
+    )
+    preview_html = output / "preview.html"
+    assert preview_html.exists()
+    html = preview_html.read_text(encoding="utf-8")
+    assert "前三张预览" in html
+    assert html.count("<figure") == 3
+    assert "named-gifs/" in html
 
 
 def test_qc_sheet_passes_clean_magenta_2x4_motion_sheet(tmp_path: Path):
@@ -828,6 +1125,7 @@ def test_submission_mode_rejects_single_bounce_sources(tmp_path: Path):
             output_dir=tmp_path / "pack",
             entries=meme_pack.default_entries("科研打工人", 24),
             mode="wechat",
+            source_mode="single_bounce",
             quality_mode="submission",
         )
 
@@ -847,6 +1145,37 @@ def test_wrap_text_keeps_long_chinese_copy_inside_canvas():
     assert len(lines) >= 2
     assert font.size >= 16
     assert all(lines)
+
+
+def test_caption_layout_treats_manual_breaks_as_soft_for_short_copy():
+    meme_pack = load_module()
+
+    lines, font = meme_pack.fit_text_lines(
+        "收到\n但灵魂已离线",
+        font_path=meme_pack.find_default_font(),
+        max_width=214,
+        max_height=76,
+        max_font_size=34,
+        min_font_size=16,
+    )
+    reserved = meme_pack.caption_reserved_height_for_text("收到\n但灵魂已离线", meme_pack.find_default_font())
+
+    assert lines == ["收到但灵魂已离线"]
+    assert font.size >= 26
+    assert reserved < meme_pack.CAPTION_RESERVED_HEIGHT
+
+
+def test_caption_layout_moves_short_copy_closer_to_subject():
+    meme_pack = load_module()
+    font_path = meme_pack.find_default_font()
+    text = "收到\n但灵魂已离线"
+
+    lines, font = meme_pack.fit_text_lines(text, font_path, max_width=214, max_height=76)
+    reserved = meme_pack.caption_reserved_height_for_text(text, font_path)
+    captioned = meme_pack.draw_caption(Image.new("RGBA", (240, 240), (0, 0, 0, 0)), text, font_path)
+
+    assert reserved <= meme_pack.caption_text_height(lines, font) + 8
+    assert captioned.getbbox()[1] <= 189
 
 
 def test_wrap_text_truncates_extreme_copy_to_fit_canvas():
@@ -882,6 +1211,8 @@ def test_build_pack_writes_named_and_wechat_outputs(tmp_path: Path):
         style="clean-sticker",
         persona="科研打工人",
         author="Agent Meme Forge",
+        source_mode="motion_sheet",
+        strict_continuity_qc=False,
     )
 
     assert result["pack_size"] == 24
@@ -902,6 +1233,7 @@ def test_build_pack_writes_named_and_wechat_outputs(tmp_path: Path):
     assert "bbox_drift" in manifest["items"][0]
     assert manifest["items"][0]["scale_normalized"] is True
     assert manifest["items"][0]["preview_only"] is False
+    assert "continuity_qc_status" in manifest["items"][0]
 
     first_gif = Image.open(output / "wechat-submit" / "main" / "01.gif")
     assert first_gif.size == (240, 240)
@@ -922,12 +1254,16 @@ def test_rebuilding_smaller_pack_cleans_stale_wechat_files(tmp_path: Path):
         output_dir=output,
         entries=meme_pack.default_entries("科研打工人", 24),
         mode="wechat",
+        source_mode="motion_sheet",
+        strict_continuity_qc=False,
     )
     meme_pack.build_pack(
         source_dir=source,
         output_dir=output,
         entries=meme_pack.default_entries("码农", 16),
         mode="wechat",
+        source_mode="motion_sheet",
+        strict_continuity_qc=False,
     )
 
     manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))

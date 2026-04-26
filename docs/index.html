@@ -201,7 +201,7 @@
         <p class="eyebrow">Codex Skill · WeChat GIF Sticker Pack</p>
         <h1>agent-meme-forge</h1>
         <p class="lead">
-          从参考图或纯文字角色概念生成一套真的会被发送的动态表情包。先规划角色卡和 2x4 八帧或 4x4 十六帧 motion-sheet 提示词，再输出适配微信表情开放平台的 GIF。
+          从参考图或纯文字角色概念生成一套真的会被发送的动态表情包。默认让 image_gen 只画 2x2 关键姿势，本地再按动作模板渲染 16 帧 GIF，避免自由 16 格带来的跳闪。
           每个表情都要过 sendability gate：复用场景、情绪价值、创意钩子和视觉笑点缺一不可。
         </p>
         <div class="actions">
@@ -227,19 +227,19 @@
           </div>
           <div class="card">
             <h3>主动生图</h3>
-            <p>支持 text_concept 直接起角色，自动写无文字 2x4 八帧或 4x4 十六帧动作 sheet 提示词，再统一加中文梗。</p>
+            <p>支持 text_concept 直接起角色，自动写无文字 2x2 keypose 提示词，再统一导演动作和加中文梗。</p>
           </div>
           <div class="card">
             <h3>交互选择</h3>
             <p>新手可以用 plan-wizard 选择参考图片或文字概念、场景人设、画面风格、数量和质量模式。</p>
           </div>
           <div class="card">
-            <h3>真实帧动画</h3>
-            <p>迁移 sprite sheet 规则：精确网格、同尺度、同包围盒、不出格，processor 按 8 或 16 个真实帧生成 GIF。</p>
+            <h3>模板导演</h3>
+            <p>把收到离线、加载中、先装懂、文献山等高频动作产品化，本地按模板渲染 16 帧。</p>
           </div>
           <div class="card">
             <h3>QC 门禁</h3>
-            <p>投稿模式默认跑 strict QC：假透明、边缘出格、空帧、bbox 乱跳和单图 bounce 都会被拒绝。</p>
+            <p>投稿模式默认跑 strict QC 和连续性 QC：假透明、边缘出格、跳帧、首尾不闭合和单图 bounce 都会被拒绝。</p>
           </div>
         </section>
 
@@ -247,13 +247,13 @@
           <div>
             <h2>AI Mascot Sample</h2>
             <p>
-              当前推荐链路会先用 text_concept 生成原创 AI 吉祥物的 2x4 八帧 motion-sheet 提示词，
-              再调用 image_gen 为每个表情产出纯 #FF00FF 或真 alpha 的真实动作帧。本地脚本会先跑 qc-sheet，
-              再切图、统一尺度、加中文梗、压成微信规格 GIF。
+              当前推荐链路会先用 text_concept 生成原创 AI 吉祥物的 2x2 keypose 提示词，
+              再调用 image_gen 为每个表情产出纯 #FF00FF 或真 alpha 的 4 个关键姿势。本地脚本会先跑 qc-sheet，
+              再统一尺度、按 motion template 渲染 16 帧、添加本地非文字特效、跑 continuity QC、加中文梗、压成微信规格 GIF。
             </p>
             <p>
               这里的 demo 是原创暖色 AI 助手，不使用官方 logo 或品牌标识。完整测试包为 24 张，
-              默认展示为 2x4 八帧 sheet；现在也支持 4x4 十六帧高表现力 sheet，并在 manifest 记录最终 GIF 帧数。
+              默认展示为 keypose-first 路线；旧的 2x4 / 4x4 motion sheet 仍可作为 expert 模式，并在 manifest 记录来源和最终 GIF 帧数。
             </p>
           </div>
           <div class="sample-row">
@@ -286,34 +286,54 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
   --style clean-sticker \
   --pack-size 24 \
   --mode wechat \
-  --animation-layout 2x4 \
+  --source-mode keyposes \
+  --keypose-layout 2x2 \
+  --render-frame-count 16 \
   --quality-mode submission \
   --output output/ai-research-plan.json
 
-# Use the first 3 image_prompts with Codex image_gen; prefer pure #FF00FF sheets unless the exported PNG has verified real alpha.
+# Use the first 3 image_prompts with Codex image_gen; prefer pure #FF00FF keypose sheets unless the exported PNG has verified real alpha.
 python skills/generate-meme-gif-pack/scripts/meme_pack.py qc-sheet \
-  --input raw-frames/01-收到离线-2x4.png \
-  --source-layout 2x4 \
+  --input raw-frames/01-收到离线-2x2.png \
+  --source-mode keyposes \
+  --source-layout 2x2 \
   --quality-mode submission \
   --output output/qc/01-qc.json
 
-# Static 4x6 contact sheets are preview-only. If image_gen returns one:
-python skills/generate-meme-gif-pack/scripts/meme_pack.py split-sheet \
-  --input output/raw-sheets/ai-research-sheet.png \
-  --output-dir raw-frames \
-  --rows 6 \
-  --cols 4
+	# Static 4x6 contact sheets are preview-only. If image_gen returns one:
+	python skills/generate-meme-gif-pack/scripts/meme_pack.py split-sheet \
+	  --input output/raw-sheets/ai-research-sheet.png \
+	  --output-dir raw-frames \
+	  --rows 6 \
+	  --cols 4
 
-python skills/generate-meme-gif-pack/scripts/meme_pack.py build-pack \
-  --source-dir raw-frames \
-  --output-dir output/my-pack \
+	# First build a real preview from the first 3 accepted sheets:
+	python skills/generate-meme-gif-pack/scripts/meme_pack.py build-preview \
+	  --source-dir raw-frames \
+	  --output-dir output/preview-first-3 \
+	  --preview-count 3 \
+	  --source-mode keyposes \
+	  --keypose-layout 2x2 \
+	  --source-layout auto \
+	  --quality-mode submission \
+	  --strict-qc \
+	  --strict-continuity-qc
+
+	# Full build requires one source image per sticker.
+	python skills/generate-meme-gif-pack/scripts/meme_pack.py build-pack \
+	  --source-dir raw-frames \
+	  --output-dir output/my-pack \
   --persona 科研打工人 \
   --style clean-sticker \
   --pack-size 24 \
   --mode wechat \
-  --source-layout 2x4 \
+  --source-mode keyposes \
+  --keypose-layout 2x2 \
+  --source-layout auto \
+  --render-frame-count 16 \
   --quality-mode submission \
-  --strict-qc</code></pre>
+  --strict-qc \
+  --strict-continuity-qc</code></pre>
         </section>
 
         <section>
@@ -325,8 +345,9 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py build-pack \
             <div class="pill"><strong>Cover</strong> 240x240 PNG, transparent</div>
             <div class="pill"><strong>Banner</strong> 750x400 PNG, no text</div>
             <div class="pill"><strong>Album</strong> 16 or 24 animated stickers</div>
-            <div class="pill"><strong>QC</strong> strict submission rejects checkerboard, edge touch, drift, and single bounce</div>
-            <div class="pill"><strong>Manifest</strong> includes qc_status, background_mode, bbox_drift</div>
+            <div class="pill"><strong>Effects</strong> local soul puff, loading dots, sweat drop, awkward lines</div>
+            <div class="pill"><strong>QC</strong> rejects checkerboard, edge touch, jump cuts, one-frame props, prop jumps, face/head drift</div>
+            <div class="pill"><strong>Manifest</strong> includes source_mode, motion_template, local_effects, prop_position_jump, face_shape_drift_score</div>
           </div>
         </section>
       </div>

@@ -9,8 +9,9 @@ Every planned sticker now carries a sendability gate: reuse trigger, emotional v
 
 ## What It Builds
 
-- A prompt plan with a character card, sendable meme list, and per-sticker no-text `2x4` 8-frame or `4x4` 16-frame motion-sheet `image_gen` prompts.
-- A `qc-sheet` gate for fake checkerboards, edge touch, empty frames, bbox drift, background mode, and frame count.
+- A prompt plan with a character card, sendable meme list, and per-sticker no-text `2x2` keypose `image_gen` prompts.
+- A local deterministic motion renderer that turns 4 key poses into a 16-frame GIF using productized templates such as `soul_offline`, `loading_loop`, and `pretend_understand`, with local non-text effects like soul puffs, loading dots, sweat drops, and awkward lines.
+- A `qc-sheet` and continuity gate for fake checkerboards, edge touch, empty frames, bbox drift, background mode, frame count, frame jumps, area jumps, one-frame props, prop position/area jumps, face/head shape drift, loop closure, and low motion energy.
 - A 16/24 item animated GIF sticker album for WeChat Sticker Open Platform.
 - Human-readable GIF names in `named-gifs/`.
 - Upload-safe numbered files in `wechat-submit/`.
@@ -50,7 +51,9 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
   --style clean-sticker \
   --pack-size 24 \
   --mode wechat \
-  --animation-layout 2x4 \
+  --source-mode keyposes \
+  --keypose-layout 2x2 \
+  --render-frame-count 16 \
   --quality-mode submission \
   --output output/ai-research-plan.json
 ```
@@ -65,12 +68,13 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py accept-generated \
   --source-dir output/raw-frames/AgentMemePack
 ```
 
-Save accepted raw `2x4` motion sheets into `raw-frames/`. Use `4x4` for selected stickers that need 16-frame smoother motion or more exaggerated pose acting; the manifest records the final GIF frame count after size compression. For Codex `image_gen`, prefer a pure solid `#FF00FF` background unless you have verified that the exported PNG has real alpha. In ChatGPT Images, transparent background is fine after QC verifies it is real alpha. In the API, use transparent output only with models and alpha formats that support it, such as PNG/WebP via `output_format`; for `gpt-image-2`, use a solid `#FF00FF` fallback background and let the processor remove it. Static 4x6 contact sheets are useful only for previews; split them first if you use that lower-quality path:
+Save accepted raw `2x2` keypose sheets into `raw-frames/`. The processor renders the final 16-frame GIF locally, which is more stable than asking image_gen to freely draw 16 frames. Legacy `2x4`/`4x4` motion sheets still work with `--source-mode motion_sheet`, but they are no longer the default submission path. For Codex `image_gen`, prefer a pure solid `#FF00FF` background unless you have verified that the exported PNG has real alpha. In ChatGPT Images, transparent background is fine after QC verifies it is real alpha. In the API, use transparent output only with models and alpha formats that support it, such as PNG/WebP via `output_format`; for `gpt-image-2`, use a solid `#FF00FF` fallback background and let the processor remove it. Static 4x6 contact sheets are useful only for previews; split them first if you use that lower-quality path:
 
 ```bash
 python skills/generate-meme-gif-pack/scripts/meme_pack.py qc-sheet \
-  --input output/raw-frames/AgentMemePack/01-收到离线-2x4.png \
-  --source-layout 2x4 \
+  --input output/raw-frames/AgentMemePack/01-收到离线-2x2.png \
+  --source-mode keyposes \
+  --source-layout 2x2 \
   --quality-mode submission \
   --output output/qc/01-qc.json
 ```
@@ -83,7 +87,26 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py split-sheet \
   --cols 4
 ```
 
-Then build the package:
+Build an explicit first-3 preview before continuing the remaining 21 images. This path writes `preview.html` and never loops 3 source sheets into a fake 24-item package:
+
+```bash
+python skills/generate-meme-gif-pack/scripts/meme_pack.py build-preview \
+  --source-dir output/raw-frames/AgentMemePack \
+  --output-dir output/preview-first-3 \
+  --persona 科研打工人 \
+  --style clean-sticker \
+  --pack-name AgentMemePackPreview \
+  --preview-count 3 \
+  --source-mode keyposes \
+  --keypose-layout 2x2 \
+  --source-layout auto \
+  --render-frame-count 16 \
+  --quality-mode submission \
+  --strict-qc \
+  --strict-continuity-qc
+```
+
+Then build the full package after all 24 source sheets exist:
 
 ```bash
 python skills/generate-meme-gif-pack/scripts/meme_pack.py build-pack \
@@ -94,10 +117,16 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py build-pack \
   --pack-size 24 \
   --mode wechat \
   --pack-name 我的表情包 \
-  --source-layout 2x4 \
+  --source-mode keyposes \
+  --keypose-layout 2x2 \
+  --source-layout auto \
+  --render-frame-count 16 \
   --quality-mode submission \
-  --strict-qc
+  --strict-qc \
+  --strict-continuity-qc
 ```
+
+Full submission builds require one accepted source image per entry. If you have only the first 3 sheets, use `build-preview`.
 
 ## Test
 

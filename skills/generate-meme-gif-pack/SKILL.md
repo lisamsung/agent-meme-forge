@@ -11,6 +11,8 @@ Create animated Chinese meme GIF packs from either a reference image or a text-o
 
 Start with a short intake when the user has not already specified the choices. Ask whether they want to upload/use a reference image or create from text, then ask for scene/persona, visual style, pack size, and quality mode. Do not silently default past these choices when the user expects interaction.
 
+Intake-first rule: before `plan-pack`, `image_gen`, or `build-pack`, the agent must ask the user to choose these options unless the user already supplied them or explicitly said to use defaults: input mode/reference image, persona, visual style, pack size/mode, and quality mode. A request such as “做一组表情包试试” is not explicit permission to skip choices.
+
 For terminal users, `plan-wizard` provides the same guided intake:
 
 ```bash
@@ -26,7 +28,10 @@ Infer only after the user gives a minimal request such as “做科研打工人�
 - `pack_size`: WeChat mode only allows 16 or 24. Default to 24.
 - `mode`: `wechat` default, or `self_use`.
 - `tone`: default `职场发疯但安全`.
-- `animation_layout`: default `2x4` motion sheet per sticker for 8-frame GIFs. Use `4x4` for 16-frame smoother/high-performance stickers when the caption needs a bigger pose arc; also supports `1x4`, `1x8`, `2x2`, or `2x3` for preview/standard workflows.
+- `source_mode`: default `keyposes`. `keyposes` means image_gen draws 4 stable key poses and the local processor renders the final GIF; `motion_sheet` is the legacy/expert mode for direct `2x4` or `4x4` frame sheets; `single_bounce` is preview-only.
+- `keypose_layout`: default `2x2`; also supports `1x4`. This is the preferred raw image layout for submission.
+- `render_frame_count`: default `16`; the local processor renders deterministic holds, anticipation, rebound, and loop closure from the key poses.
+- `animation_layout`: legacy `motion_sheet` layout, default `2x4`; use `4x4` only when intentionally asking image_gen to draw every frame.
 - `quality_mode`: default `submission`; also `standard` or `preview`. Submission requires strict QC, real `2x4` or `4x4` sheets, and no single-image bounce fallback.
 
 If the user asks for 18 and wants WeChat upload, explain that WeChat albums use 16 or 24, then default to 24 unless they explicitly switch to `self_use`.
@@ -42,23 +47,24 @@ If the user asks for 18 and wants WeChat upload, explain that WeChat albums use 
 - Do not ask the image model to draw Chinese text. The visual prompt must say **no text**, no captions, no speech bubbles, no UI.
 - Write meme copy yourself. Every item needs a concrete sending scenario.
 - Treat `meme_quality_bar` and every `sendability_gate` as hard product gates. Each sticker needs a reuse trigger, emotional value, creative hook, and visual gag; if it is only cute or decorative, rewrite it before generation.
-- If the user has not provided choices, ask the intake questions explicitly: reference image or text concept, persona/scene, style, WeChat or self-use, count, and quality mode.
+- If the user has not provided choices, ask the intake questions explicitly before generation: reference image or text concept, persona/scene, style, WeChat or self-use, count, and quality mode. Only infer defaults without asking when the user says to use defaults or gives a minimal request and clearly wants immediate automatic generation.
 - Use `scripts/meme_pack.py plan-pack` to write the meme entries, character card, and per-sticker `image_gen` prompts.
 - Use `scripts/meme_pack.py plan-wizard` when the user wants a command-line guided setup instead of agent chat intake.
-- Use built-in `image_gen` for raw no-text motion sheets. Use `scripts/meme_pack.py build-pack` only for deterministic processing.
+- Use built-in `image_gen` for raw no-text keypose sheets by default. Use `scripts/meme_pack.py build-pack` for deterministic motion rendering, captioning, continuity QC, and export.
 - After each `image_gen` result, persist the generated image as a local file and run `scripts/meme_pack.py accept-generated`; this copies it to the planned `raw_image_filename` and writes `generated-index.json`.
 - If `image_gen` returns only an attachment with no usable local file path, stop and ask the user to save/export the attachment locally before QC. Do not pretend `qc-sheet` can read an unsaved chat attachment.
-- Prefer one semantic motion sheet per sticker, not one static pose. Single-pose sources are allowed only for fast previews or fallback.
-- Motion sheets must use exact grid count, same character identity, same bounding box, same pixel scale, clear margins, no cell-edge crossing, and no text.
+- Prefer one semantic keypose sheet per sticker: 4 stable poses that the local processor can turn into a 12/16-frame loop. Single-pose sources are allowed only for fast previews or fallback.
+- Keypose sheets must use exact grid count, same character identity, same bounding box, same pixel scale, clear margins, no cell-edge crossing, and no text.
 - For subtle reactions such as blink, nod, loading, or blank stare, use `motion_profile=micro`: stable character anchor, no lateral drift, but medium-readable expression and small posture changes. A blink/nod should visibly change eyelids, pupils, glasses, shoulders, mouth, or head angle; it must not become a nearly static sticker.
-- For exaggerated reactions, use `4x4`/16-frame sheets when the model can keep identity stable. The extra frames should create anticipation, pose change, overshoot, recovery, and loop smoothing, not 16 duplicate poses.
+- For exaggerated reactions, use a stronger motion template and 16-frame local rendering first. Direct `4x4`/16-frame image_gen sheets are legacy/expert mode because they often create jumpy, unrelated frames.
+- Default high-frequency templates now include local non-text effects: `soul_offline` adds a multi-frame soul puff, `loading_loop` adds continuous loading dots, and `pretend_understand` adds sweat/awkward lines. These are represented in plan output as `local_effects` and protected by `qc_policy`.
 - Timing defaults: 8-frame GIFs use about 170ms per frame; 16-frame GIFs use about 150ms per frame so the full loop is readable rather than rushed.
 - Micro-motion QC is stricter than normal action QC. If center drift is visible, regenerate; do not treat drifting across the cell as intentional motion.
 - For Codex `image_gen` motion sheets, prefer a pure solid `#FF00FF` background unless the tool is confirmed to export real alpha transparency to a local PNG. This avoids the common failure where the model draws a visible checkerboard instead of real transparency.
 - ChatGPT Images can be asked for transparent background; API model support varies, and `gpt-image-2` should use solid flat `#FF00FF` fallback plus local cleanup because it does not support true transparent background.
 - For API models that support transparent output, request an alpha-capable format such as PNG or WebP, for example with `background: "transparent"` and `output_format: "png"`.
 - Reject fake checkerboard transparency and visible separator lines. They are just pixels, not alpha transparency or valid motion-sheet structure.
-- Run `qc-sheet` on the first 3 generated sheets before generating all 24. Regenerate anything that fails layout, transparency, edge-touch, bbox drift, or readability checks.
+- Run `qc-sheet` and build/continuity QC on the first 3 generated keypose sheets before generating all 24. Regenerate anything that fails layout, transparency, edge-touch, bbox drift, loop closure, motion energy, prop position jump, prop lifecycle, face/head shape drift, or readability checks.
 - For WeChat submission, use `--quality-mode submission --strict-qc`. Single-image `single_bounce` output is preview-only.
 - WeChat output must include numbered upload files and readable named GIF files.
 
@@ -84,7 +90,9 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
   --pack-size 24 \
   --mode wechat \
   --pack-name AI科研打工搭子 \
-  --animation-layout 2x4 \
+  --source-mode keyposes \
+  --keypose-layout 2x2 \
+  --render-frame-count 16 \
   --quality-mode submission \
   --output output/ai-research-plan.json
 ```
@@ -93,8 +101,8 @@ For a reference image, add `--reference-image path/to/reference.png` and describ
 3. Review the generated plan:
    - `character_card`: identity traits, silhouette, color anchors, expression range, forbidden drift.
    - `items`: meme names, captions, keywords, use scenes, motion hints.
-   - `animation`: sheet layout and frame count, default `2x4` / 8 frames.
-   - `image_prompts`: one motion-sheet prompt per sticker for `image_gen`.
+   - `animation`: source mode, keypose layout, and rendered frame count; default `keyposes` / `2x2` / 16 frames.
+   - `image_prompts`: one keypose prompt per sticker for `image_gen`, plus motion template, `local_effects`, `qc_policy`, and local timeline.
    - `meme_quality_bar` and each prompt's `sendability_gate`: the usefulness test for whether this sticker deserves to exist.
    - `requires_agent_tooling`: confirms `image_gen` is required for actual generation.
    - `image_handoff`: exact `accept-generated` command template and `generated-index.json` audit path.
@@ -105,12 +113,13 @@ For a reference image, add `--reference-image path/to/reference.png` and describ
 5. Generate and QC raw images:
    - MUST call built-in `image_gen` for the first 3 generated `image_prompts`, not all 24 at once, when the tool is available.
    - Do not stop after writing the plan; the plan is only an intermediate artifact.
-- Default quality path: one `2x4` no-text motion sheet per sticker. Use `4x4` for selected stickers that need more dramatic body language or smoother transitions.
-- Each sheet frame should be a real acting beat: start, anticipation, action, escalation, peak reaction, rebound, settle, loopable return. For 16-frame sheets, include in-between frames between those beats so the motion reads as continuous. For quiet reactions, use medium-readable eyelid/pupil/head/glasses/shoulder changes instead of big pose jumps or nearly invisible motion.
+- Default quality path: one `2x2` no-text keypose sheet per sticker. The local processor renders the final 16-frame loop from a motion template such as `soul_offline`, `loading_loop`, or `pretend_understand`.
+- The processor adds template-level comic effects locally rather than asking image_gen to invent them. Keep the raw keyposes clean; let local rendering add soul puff, loading dots, sweat drops, or awkward lines across multiple frames.
+- Do not let image_gen freely invent 16 final frames unless you intentionally switch to legacy `--source-mode motion_sheet`. Four stable key poses with deterministic local motion are more reliable than 16 unrelated AI drawings.
    - For a fast first pass only, one 4x6 contact sheet of static poses is acceptable; split it with `split-sheet` before `build-pack`.
    - For Codex `image_gen`, ask for a pure solid `#FF00FF` background by default. Use transparent PNG only when the current tool can prove it exports real alpha to disk. If using ChatGPT Images directly or an API model that supports transparency, transparent PNG is acceptable; if using `gpt-image-2` or another model/tool that cannot output true alpha, use a solid flat `#FF00FF` background and let the processor remove it locally.
    - After each generated image is available as a local file, run `accept-generated` so it lands at the planned raw filename.
-   - Run `qc-sheet` on those first 3 accepted motion sheets. If a sheet fails, use its `regenerate_hint` from the plan and generate again.
+   - Run `qc-sheet` on those first 3 accepted keypose sheets. Then run `build-preview --strict-continuity-qc --preview-count 3` so final animation continuity is checked before batch generation. Do not use full `build-pack` with only 3 sources; full builds refuse to reuse source images automatically. If a sheet fails, use its `regenerate_hint` from the plan and generate again.
    - If the first 3 look technically correct but not worth sending, revise their captions, visual gags, or motion plans before continuing. Technical pass does not override the sendability gate.
    - Continue to the remaining 21 sheets only after the first 3 pass QC.
 
@@ -124,13 +133,35 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py accept-generated \
 
 ```bash
 python skills/generate-meme-gif-pack/scripts/meme_pack.py qc-sheet \
-  --input output/raw-frames/AI科研打工搭子/01-收到离线-2x4.png \
-  --source-layout 2x4 \
+  --input output/raw-frames/AI科研打工搭子/01-收到离线-2x2.png \
+  --source-mode keyposes \
+  --source-layout 2x2 \
   --motion-profile micro \
   --quality-mode submission \
   --output output/qc/01-qc.json
 ```
 6. Build the pack:
+
+First build the explicit first-3 preview:
+
+```bash
+python skills/generate-meme-gif-pack/scripts/meme_pack.py build-preview \
+  --source-dir output/raw-frames/AI科研打工搭子 \
+  --output-dir output/preview-first-3 \
+  --persona 科研打工人 \
+  --style clean-sticker \
+  --pack-name AI科研打工搭子前三张 \
+  --preview-count 3 \
+  --source-mode keyposes \
+  --keypose-layout 2x2 \
+  --source-layout auto \
+  --render-frame-count 16 \
+  --quality-mode submission \
+  --strict-qc \
+  --strict-continuity-qc
+```
+
+Only continue after `output/preview-first-3/preview.html` looks sendable and stable. Full `build-pack` requires one accepted source image per sticker; it must not silently loop the first three images.
 
 Optional static contact-sheet split for previews:
 
@@ -151,18 +182,22 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py build-pack \
   --pack-size 24 \
   --mode wechat \
   --pack-name 我的表情包 \
-  --source-layout 2x4 \
+  --source-mode keyposes \
+  --keypose-layout 2x2 \
+  --source-layout auto \
+  --render-frame-count 16 \
   --quality-mode submission \
-  --strict-qc
+  --strict-qc \
+  --strict-continuity-qc
 ```
 
 7. QC before returning:
-   - For motion-sheet packs, inspect `manifest.json`: `animation_source` should be `sheet`, `source_layout` should match the plan, and `source_frame_count` should be greater than 1.
+   - For default packs, inspect `manifest.json`: `source_mode` should be `keyposes`, `animation_source` should be `keyposes`, `source_layout` should be `2x2`, `source_frame_count` should be `4`, and `rendered_frame_count` should be `16`.
    - Open several GIFs and verify the face/character still reads at 240px.
    - Check every main GIF is 240x240 and below 500KB.
    - Check thumbnails are 120x120 and below 50KB.
    - Check the text is readable and not clipped.
-   - Inspect `qc_report.json`: every item should be `pass` for submission.
+   - Inspect `qc_report.json`: every item should be `pass` for submission, and every item’s `continuity_qc_status` should be `pass`; `prop_position_jump`, `prop_area_jump`, `face_shape_drift_score`, and `max_head_center_step_px` should stay below the template thresholds.
    - Reject weak jokes. Replace any entry that is only decorative or has no obvious send scenario.
    - Reject any GIF that is visually polished but not useful as a chat reply.
 

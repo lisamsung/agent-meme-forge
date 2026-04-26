@@ -19,6 +19,8 @@ def test_skill_frontmatter_and_hard_rules_are_present():
     assert "text_concept" in text
     assert "image_gen" in text
     assert "motion sheet" in text
+    assert "keyposes" in text
+    assert "--strict-continuity-qc" in text
     assert "4x4" in text
     assert "16-frame" in text
     assert "--source-layout" in text
@@ -33,6 +35,11 @@ def test_skill_frontmatter_and_hard_rules_are_present():
     assert "do not stop after" in text
     assert "没人用的表情包就是垃圾表情包" in text
     assert "sendability gate" in text.lower()
+    assert "local_effects" in text
+    assert "face_shape_drift_score" in text
+    assert "prop_position_jump" in text
+    assert "Intake-first rule" in text
+    assert "explicitly said to use defaults" in text
 
 
 def test_references_cover_wechat_prompt_persona_and_humor():
@@ -64,6 +71,9 @@ def test_prompt_rules_support_direct_text_generation():
     assert "motion_profile=micro" in text
     assert "lateral drift" in text
     assert "2x4" in text
+    assert "2x2" in text
+    assert "keypose" in text.lower()
+    assert "continuity" in text.lower()
     assert "4x4" in text
     assert "16-frame" in text
     assert "1x4" in text
@@ -76,6 +86,9 @@ def test_prompt_rules_support_direct_text_generation():
     assert "edge" in text
     assert "accept-generated" in text
     assert "only cute" in text
+    assert "local_effects" in text
+    assert "face/head shape drift" in text
+    assert "prop position jump" in text
 
 
 def test_pages_readme_link_stays_inside_project_or_github():

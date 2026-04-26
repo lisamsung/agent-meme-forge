@@ -2,6 +2,7 @@
 
 import argparse
 import csv
+import html as html_lib
 import json
 import math
 import re
@@ -34,6 +35,7 @@ GENERATED_FILES = [
     Path("manifest.json"),
     Path("manifest.csv"),
     Path("qc_report.json"),
+    Path("preview.html"),
     Path("wechat-submit") / "cover.png",
     Path("wechat-submit") / "icon.png",
     Path("wechat-submit") / "banner.png",
@@ -87,7 +89,16 @@ SHEET_LAYOUTS = {
 DEFAULT_ANIMATION_LAYOUT = "2x4"
 QUALITY_MODES = {"preview", "standard", "submission"}
 MOTION_PROFILES = {"micro", "standard", "action"}
+SOURCE_MODES = {"keyposes", "motion_sheet", "single_bounce"}
+DEFAULT_SOURCE_MODE = "keyposes"
+DEFAULT_KEYPOSE_LAYOUT = "2x2"
+KEYPOSE_LAYOUTS = {"2x2", "1x4"}
+MOTION_SHEET_LAYOUTS = {"2x4", "4x4"}
+DEFAULT_RENDER_FRAME_COUNT = 16
 CAPTION_RESERVED_HEIGHT = 76
+MIN_CAPTION_RESERVED_HEIGHT = 42
+CAPTION_BOTTOM_PADDING = 12
+CAPTION_ALLOWED_SUBJECT_OVERLAP = 4
 SUBJECT_CANVAS_SIZE = WECHAT_SPEC["main"]["size"]
 
 
@@ -122,6 +133,65 @@ MOTION_PROFILE_LIMITS = {
     "micro": {"center_drift_ratio": 0.07, "size_drift_ratio": 0.18, "alignment_mode": "stable"},
     "standard": {"center_drift_ratio": None, "size_drift_ratio": None, "alignment_mode": "preserve"},
     "action": {"center_drift_ratio": 0.34, "size_drift_ratio": 0.32, "alignment_mode": "preserve"},
+}
+
+CONTINUITY_LIMITS = {
+    "micro": {
+        "max_rgb_step": 0.36,
+        "max_alpha_step": 0.50,
+        "max_area_jump": 0.42,
+        "max_center_step": 8.0,
+        "max_loop_closure": 0.24,
+        "min_motion_energy": 0.006,
+        "max_caption_zone_alpha": 0.08,
+    },
+    "standard": {
+        "max_rgb_step": 0.45,
+        "max_alpha_step": 0.42,
+        "max_area_jump": 0.55,
+        "max_center_step": 26.0,
+        "max_loop_closure": 0.30,
+        "min_motion_energy": 0.008,
+        "max_caption_zone_alpha": 0.10,
+    },
+    "action": {
+        "max_rgb_step": 0.58,
+        "max_alpha_step": 0.55,
+        "max_area_jump": 0.78,
+        "max_center_step": 34.0,
+        "max_loop_closure": 0.36,
+        "min_motion_energy": 0.010,
+        "max_caption_zone_alpha": 0.12,
+    },
+}
+
+FACE_QC_LIMITS = {
+    "micro": {"max_shape_drift": 0.30, "max_head_center_step": 10.0},
+    "standard": {"max_shape_drift": 0.34, "max_head_center_step": 22.0},
+    "action": {"max_shape_drift": 0.42, "max_head_center_step": 32.0},
+}
+
+PROP_QC_LIMITS = {
+    "min_lifetime": 2,
+    "max_position_jump": 72.0,
+    "max_area_jump": 1.35,
+}
+
+TEMPLATE_ACTING_LIMITS = {
+    "soul_offline": {"max_center_step": 22.0, "max_head_center_step": 22.0, "max_shape_drift": 0.56},
+    "loading_loop": {"max_center_step": 22.0, "max_head_center_step": 22.0, "max_shape_drift": 0.34},
+    "pretend_understand": {"max_center_step": 22.0, "max_head_center_step": 22.0, "max_shape_drift": 0.34},
+}
+
+MOTION_TEMPLATE_IDS = {
+    "soul_offline",
+    "loading_loop",
+    "pretend_understand",
+    "typing_panic",
+    "fake_smile",
+    "absurd_recoil",
+    "steady_breath",
+    "paper_overflow",
 }
 
 
@@ -300,6 +370,19 @@ def parse_motion_profile(motion_profile: str) -> str:
     return motion_profile
 
 
+def parse_source_mode(source_mode: str) -> str:
+    if source_mode not in SOURCE_MODES:
+        raise ValueError(f"Unsupported source_mode '{source_mode}'. Use one of: {', '.join(sorted(SOURCE_MODES))}.")
+    return source_mode
+
+
+def parse_keypose_layout(layout: str) -> str:
+    parse_sheet_layout(layout)
+    if layout not in KEYPOSE_LAYOUTS:
+        raise ValueError(f"Unsupported keypose layout '{layout}'. Use one of: {', '.join(sorted(KEYPOSE_LAYOUTS))}.")
+    return layout
+
+
 def pixel_data(image: Image.Image):
     return image.get_flattened_data() if hasattr(image, "get_flattened_data") else image.getdata()
 
@@ -338,6 +421,214 @@ def motion_profile_for_motion(motion: str) -> str:
 
 def alignment_mode_for_profile(motion_profile: str) -> str:
     return str(MOTION_PROFILE_LIMITS[parse_motion_profile(motion_profile)]["alignment_mode"])
+
+
+def motion_template_for_entry(entry: MemeEntry) -> str:
+    text = f"{entry.name} {entry.text} {entry.scene} {entry.motion}".lower()
+    if any(token in text for token in ["收到离线", "灵魂", "offline", "ghost", "fade", "sleep"]):
+        return "soul_offline"
+    if any(token in text for token in ["加载", "loading", "progress", "进度条"]):
+        return "loading_loop"
+    if any(token in text for token in ["装懂", "懂", "understand", "nod", "blink"]):
+        return "pretend_understand"
+    if any(token in text for token in ["写", "typing", "keyboard", "terminal", "compile", "编译"]):
+        return "typing_panic"
+    if any(token in text for token in ["假笑", "礼貌", "笑不出来", "smile"]):
+        return "fake_smile"
+    if any(token in text for token in ["离谱", "合理", "recoil", "jump", "hit", "swoop"]):
+        return "absurd_recoil"
+    if any(token in text for token in ["文献", "论文", "paper", "scroll", "document", "literature"]):
+        return "paper_overflow"
+    return "steady_breath"
+
+
+def keypose_beats_for_template(template_id: str, entry: MemeEntry) -> list[str]:
+    name = entry.name
+    beats = {
+        "soul_offline": [
+            f"{name}: readable start pose, polite bright smile, one hand slightly raised like replying received, eyes open and face large",
+            f"{name}: obvious head nod down, eyelids droop hard and shoulders sink, smile freezes into a tired polite mask, same crop and silhouette",
+            f"{name}: peak offline gag, head tilted and empty smile, body sagging, leave clean space above the head for a local soul puff effect",
+            f"{name}: loop return pose, empty but friendly smile with half-open eyes, hand returns close to the body, same outfit and scale",
+        ],
+        "loading_loop": [
+            f"{name}: character faces a small laptop or invisible task panel just below frame, smiling but clearly starting to buffer, face large",
+            f"{name}: visible buffering freeze, eyes droop and shoulders sink, hands hover near the same spot as if waiting for a slow loading bar",
+            f"{name}: peak stuck expression with unfocused pupils and awkward frozen smile, leave clean space near the head for local loading dots",
+            f"{name}: character pops back to focused start pose with a tiny recoil, same prop area, same body scale, loopable",
+        ],
+        "pretend_understand": [
+            f"{name}: polite start pose, thinking finger near chin or small listening nod, bright smile, eyes open and attentive",
+            f"{name}: obvious nod down as if understanding, slow blink, controlled smile, shoulders stay aligned, same hand pose and crop",
+            f"{name}: peak confused-confidence gag, eyes drift sideways, eyebrows lifted, mouth tries too hard to stay professional",
+            f"{name}: forced confident smile with a compact thumbs-up or hand gesture close to body, loopable back to pose 1",
+        ],
+        "typing_panic": [
+            f"{name}: hands placed on keyboard or laptop, nervous start",
+            f"{name}: hands start typing faster, shoulders tense",
+            f"{name}: peak tiny panic typing, sweat or speed marks close to subject",
+            f"{name}: exhausted reset pose, hands still on keyboard for loop",
+        ],
+        "fake_smile": [
+            f"{name}: neutral polite expression, shoulders square",
+            f"{name}: mouth corners lift into a controlled fake smile",
+            f"{name}: smile twitches with tiny stress mark, eyes strained",
+            f"{name}: returns to polite neutral smile, same crop",
+        ],
+        "absurd_recoil": [
+            f"{name}: normal pose before noticing something strange",
+            f"{name}: eyes widen and body leans back slightly",
+            f"{name}: peak absurd reaction, eyebrows high, small shock marks close to head",
+            f"{name}: settles into stunned loopable pose, same scale",
+        ],
+        "steady_breath": [
+            f"{name}: tense but centered start pose",
+            f"{name}: shoulders rise slightly, small inhale",
+            f"{name}: shoulders drop, expression calms but still tired",
+            f"{name}: returns to centered start pose, loopable",
+        ],
+        "paper_overflow": [
+            f"{name}: sees a small paper stack, worried eyes",
+            f"{name}: paper stack grows but stays near the character",
+            f"{name}: papers surround the character at peak chaos, no edge crossing",
+            f"{name}: character pops back exhausted, papers settle for loop",
+        ],
+    }
+    return beats.get(template_id, beats["steady_breath"])
+
+
+def local_effects_for_template(template_id: str) -> list[str]:
+    return {
+        "soul_offline": ["soul_puff"],
+        "loading_loop": ["loading_dots"],
+        "pretend_understand": ["sweat_drop", "awkward_lines"],
+    }.get(template_id, [])
+
+
+def qc_policy_for_template(template_id: str) -> dict[str, object]:
+    return {
+        "min_prop_lifetime": PROP_QC_LIMITS["min_lifetime"],
+        "max_prop_position_jump": PROP_QC_LIMITS["max_position_jump"],
+        "max_prop_area_jump": PROP_QC_LIMITS["max_area_jump"],
+        "allow_local_effects": local_effects_for_template(template_id),
+        "protect_head_shape": True,
+    }
+
+
+def _base_timeline(frame_count: int) -> list[dict[str, float | int]]:
+    pose_sequence = [1, 1, 1, 2, 2, 2, 3, 3, 3, 3, 2, 2, 4, 4, 1, 1]
+    dx_sequence = [0, 0, 0, 0, 0, 0, -1, 0, 1, 0, 0, 0, 0, 0, 0, 0]
+    dy_sequence = [0, -1, 0, 1, 2, 1, 0, -2, -3, -1, 1, 0, 0, -1, 0, 1]
+    scale_sequence = [1.0, 1.01, 1.0, 0.995, 0.985, 0.99, 1.0, 1.015, 1.02, 1.01, 0.995, 1.0, 1.005, 1.0, 1.0, 1.002]
+    rotation_sequence = [0, 0, 0, -0.8, -1.0, -0.6, 0, 0.8, 1.0, 0.6, -0.3, 0, 0.3, 0, 0, 0]
+    timeline = [
+        {
+            "pose": pose_sequence[index],
+            "dx": dx_sequence[index],
+            "dy": dy_sequence[index],
+            "scale": scale_sequence[index],
+            "rotation": rotation_sequence[index],
+            "hold": 1,
+        }
+        for index in range(len(pose_sequence))
+    ]
+    if frame_count == len(timeline):
+        return timeline
+    if frame_count < len(timeline):
+        if frame_count <= 1:
+            return timeline[:1]
+        selected: list[dict[str, float | int]] = []
+        for index in range(frame_count):
+            source_index = round(index * (len(timeline) - 1) / (frame_count - 1))
+            selected.append(dict(timeline[source_index]))
+        selected[-1]["pose"] = 1
+        selected[-1]["dx"] = 0
+        selected[-1]["dy"] = 0
+        selected[-1]["scale"] = 1.0
+        selected[-1]["rotation"] = 0
+        return selected
+    expanded = []
+    while len(expanded) < frame_count:
+        expanded.extend(dict(item) for item in timeline)
+    return expanded[:frame_count]
+
+
+def timeline_for_template(template_id: str, frame_count: int = DEFAULT_RENDER_FRAME_COUNT) -> list[dict[str, float | int]]:
+    timeline = _base_timeline(frame_count)
+    if template_id == "soul_offline":
+        pose = [1, 1, 2, 2, 2, 3, 3, 3, 3, 2, 2, 4, 4, 1, 1, 1]
+        dx = [0, 0, 0, 0, 0, -1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0]
+        dy = [0, 1, 3, 5, 4, 2, 0, -2, -3, 0, 2, 1, -1, 0, 1, 0]
+        scale = [1.0, 0.998, 0.992, 0.985, 0.99, 1.0, 1.012, 1.022, 1.015, 1.0, 0.995, 1.006, 1.012, 1.0, 0.998, 1.0]
+        rotation = [0, -0.2, -0.8, -1.2, -0.8, -0.2, 0.5, 1.0, 0.7, 0.1, -0.4, 0.3, 0.6, 0, 0, 0]
+        for index, step in enumerate(timeline):
+            step["pose"] = pose[index % 16]
+            step["dx"] = dx[index % 16]
+            step["dy"] = dy[index % 16]
+            step["scale"] = scale[index % 16]
+            step["rotation"] = rotation[index % 16]
+            step["effect"] = "soul_puff" if 5 <= index % 16 <= 11 else ""
+    elif template_id == "loading_loop":
+        for index, step in enumerate(timeline):
+            step["pose"] = [1, 1, 2, 2, 2, 3, 3, 3, 3, 2, 2, 4, 4, 1, 1, 1][index % 16]
+            step["dy"] = [0, 1, 3, 4, 3, 1, 0, -2, 0, 2, 3, 1, -1, 0, 1, 0][index % 16]
+            step["dx"] = [0, 0, 0, 1, 0, -1, 0, 1, -1, 0, 1, 0, -1, 0, 0, 0][index % 16]
+            step["scale"] = [1.0, 1.0, 0.992, 0.988, 0.992, 1.0, 1.006, 1.01, 1.006, 0.996, 0.992, 1.0, 1.012, 1.006, 1.0, 1.0][index % 16]
+            step["rotation"] = [0, 0.2, -0.8, -1.0, -0.6, 0.4, 0, 0.8, -0.8, 0.4, -0.4, 0.2, 0.8, 0.2, 0, 0][index % 16]
+            step["effect"] = "loading_dots"
+    elif template_id == "pretend_understand":
+        pose = [1, 1, 2, 2, 2, 3, 3, 3, 3, 4, 4, 3, 2, 1, 1, 1]
+        dx = [0, 0, 0, 0, 0, 1, 2, 3, 2, 1, 0, 1, 0, 0, 0, 0]
+        dy = [0, 1, 3, 4, 3, 1, 0, -1, 0, 1, 0, 0, 2, 0, 1, 0]
+        scale = [1.0, 1.004, 1.0, 0.994, 0.998, 1.0, 1.006, 1.01, 1.006, 1.014, 1.01, 1.004, 1.0, 1.0, 1.002, 1.0]
+        rotation = [0, 0.2, -0.8, -1.0, -0.6, 0.4, 0.8, 1.2, 0.8, -0.4, -0.8, 0.3, -0.4, 0, 0, 0]
+        for index, step in enumerate(timeline):
+            step["pose"] = pose[index % 16]
+            step["dx"] = dx[index % 16]
+            step["dy"] = dy[index % 16]
+            step["scale"] = scale[index % 16]
+            step["rotation"] = rotation[index % 16]
+            step["effect"] = "sweat_drop" if 5 <= index % 16 <= 10 else ("awkward_lines" if 6 <= index % 16 <= 11 else "")
+    elif template_id == "typing_panic":
+        for index, step in enumerate(timeline):
+            step["dx"] = [-1, 1, -1, 1][index % 4]
+            step["dy"] = [0, -1, 0, 1][index % 4]
+            step["scale"] = 1.0 + (0.012 if index % 2 else 0.0)
+    elif template_id == "absurd_recoil":
+        for index, step in enumerate(timeline):
+            step["dx"] = [0, 0, -1, -2, -3, -4, -5, -4, -3, -2, -1, 0, 1, 0, 0, 0][index % 16]
+            step["rotation"] = [0, 0, -0.5, -1.0, -1.5, -1.8, -2.0, -1.2, -0.8, 0, 0.5, 0.2, 0, 0, 0, 0][index % 16]
+    elif template_id == "steady_breath":
+        for index, step in enumerate(timeline):
+            step["pose"] = [1, 1, 2, 2, 2, 3, 3, 3, 2, 2, 4, 4, 1, 1, 1, 1][index % 16]
+            step["scale"] = 1.0 + [0, 0.004, 0.008, 0.012, 0.008, 0.002, -0.004, -0.006, -0.004, 0, 0.004, 0.002, 0, 0, 0, 0][index % 16]
+            step["rotation"] = 0
+    return timeline
+
+
+def motion_template_plan_for_entry(entry: MemeEntry, frame_count: int = DEFAULT_RENDER_FRAME_COUNT) -> dict[str, object]:
+    template_id = motion_template_for_entry(entry)
+    return {
+        "motion_template": template_id,
+        "keypose_beats": keypose_beats_for_template(template_id, entry),
+        "timeline": timeline_for_template(template_id, frame_count),
+        "local_effects": local_effects_for_template(template_id),
+        "qc_policy": qc_policy_for_template(template_id),
+        "allowed_effects": {
+            "soul_offline": "tiny soul or thought puff must persist for several adjacent frames, never one-frame flash",
+            "loading_loop": "loading marks must stay close to the head or laptop and persist across the loading beat",
+            "pretend_understand": "sweat drop or awkward lines must stay near the head for several adjacent frames, never one-frame flash",
+            "paper_overflow": "papers may grow over multiple beats but cannot teleport or touch cell edges",
+        }.get(template_id, "small close-to-subject effects only; no one-frame props"),
+        "continuity_acceptance": (
+            "neighboring rendered frames must have stable center, no sudden area jump, no one-frame prop flash, "
+            "and the final frame must loop back cleanly to the first frame"
+        ),
+        "regenerate_hint": (
+            f"Regenerate {entry.name} as four stable key poses for template {template_id}: same identity, same crop, same prop set, "
+            "pure #FF00FF background, no text, no separator lines, no extra in-between frames."
+        ),
+    }
 
 
 def animation_frames_for_entry(entry: MemeEntry, frame_count: int = 4) -> list[str]:
@@ -493,6 +784,25 @@ def sheet_prompt_rules(layout: str) -> str:
     )
 
 
+def keypose_prompt_rules(layout: str, render_frame_count: int) -> str:
+    rows, cols = parse_sheet_layout(layout)
+    cells = rows * cols
+    return (
+        f"Keypose sheet rules: exactly {cells} key poses in a {layout} grid "
+        f"({rows} row{'s' if rows != 1 else ''}, {cols} column{'s' if cols != 1 else ''}), reading left-to-right and top-to-bottom. "
+        f"Do not generate the final {render_frame_count} animation frames. The local processor will render the final {render_frame_count}-frame GIF from these four poses using deterministic holds, anticipation, rebound, and loop closure. "
+        "No borders, no separator lines, no panel frames, no numbers. "
+        "Same character identity, same outfit cues, same color anchors, same bounding box, same hand/prop continuity, and same pixel scale in every key pose. "
+        "Keep the same silhouette and hand pose continuity unless the four-pose acting plan explicitly changes it. "
+        "The entire subject and any prop or effect must fit fully inside each cell with clear margin; nothing may cross a cell edge. "
+        "Make the four poses semantically different but continuous: start, anticipation or drift, peak gag, loopable return. "
+        "Do not make unrelated illustrations, camera cuts, crop changes, random props, teleporting hands, or one-frame-only effects. "
+        "For Codex image_gen runs, prefer a pure solid #FF00FF background unless the tool is confirmed to export real alpha transparency to a local PNG file. "
+        "If using a confirmed alpha-capable image interface, transparent PNG background is acceptable; verify it is real alpha, not visible pixels. "
+        "Never use gradients, shadows, colored washes, textured backgrounds, or fake checkerboard transparency behind the cells."
+    )
+
+
 def visual_gag_for_entry(entry: MemeEntry) -> str:
     motion = entry.motion.lower()
     if any(token in motion for token in ["paper", "scroll", "document", "literature"]):
@@ -574,7 +884,8 @@ def motion_profile_prompt(motion_profile: str) -> str:
             "Keep the character fully inside the cell, preserve identity and scale, and make neighboring frames continuous instead of jump-cut."
         )
     return (
-        "Motion amplitude profile: standard sticker loop. Use readable face, hand, shoulder, or prop changes that match the meme caption while keeping identity, scale, and crop stable."
+        "Motion amplitude profile: standard sticker loop. Use readable face, hand, shoulder, or prop changes that match the meme caption while keeping identity, scale, and crop stable. "
+        "The four key poses should show a clear acting arc: start, anticipation, peak gag, and loopable recovery; avoid four nearly identical pretty poses."
     )
 
 
@@ -620,35 +931,77 @@ def image_prompt_for_entry(
     character_card: str,
     tone: str,
     animation_layout: str = DEFAULT_ANIMATION_LAYOUT,
+    source_mode: str = DEFAULT_SOURCE_MODE,
+    keypose_layout: str = DEFAULT_KEYPOSE_LAYOUT,
+    render_frame_count: int = DEFAULT_RENDER_FRAME_COUNT,
 ) -> dict:
     caption = entry.text.replace("\n", " / ")
-    rows, cols = parse_sheet_layout(animation_layout)
-    frame_plan = animation_frames_for_entry(entry, rows * cols)
-    frame_lines = "\n".join(f"Frame {frame_index}: {description}" for frame_index, description in enumerate(frame_plan, start=1))
+    source_mode = parse_source_mode(source_mode)
     motion_profile = motion_profile_for_motion(entry.motion)
-    frame_count = len(frame_plan)
     sendability_gate = sendability_gate_for_entry(entry)
-    prompt = (
-        "Create one raw no-text motion sheet for a Chinese WeChat animated meme GIF sticker pack.\n"
-        f"Character card: {character_card}\n"
-        f"Subject reminder: {subject.strip() or 'uploaded reference character'}.\n"
-        f"Visual style: {style_prompt(style)}.\n"
-        f"Persona context: {persona}; useful visual cues: {persona_prompt(persona)}.\n"
-        f"Meme item {index:02d}: {entry.name}. Chat send scenario: {entry.scene}. "
-        f"The final Chinese caption will be added later by a local processor as \"{caption}\"; do not draw any text.\n"
-        "Sendability gate: this must be a sticker people want to send, not just a nice illustration. "
-        f"Reuse trigger: {sendability_gate['reuse_trigger']}. Emotional value: {sendability_gate['emotional_value']}. "
-        f"Creative hook: {sendability_gate['creative_hook']}. If it is only cute or decorative, generic, or not useful as a chat reply, it fails.\n"
-        f"Acting direction: exaggerated readable reaction, {entry.motion}; make the emotion understandable before the caption is added.\n"
-        f"{sheet_prompt_rules(animation_layout)}\n"
-        f"{motion_profile_prompt(motion_profile)}\n"
-        f"Frame-by-frame acting plan:\n{frame_lines}\n"
-        "Motion continuity: use small readable in-between changes between neighboring frames; avoid flicker, teleporting hands, changing camera distance, changing face proportions, or adding/removing props that are not in the frame plan.\n"
-        f"Tone: {tone}; funny, slightly unhinged, but safe for public WeChat review.\n"
-        "Composition: one character only, centered, full character or large bust visible, oversized readable face, crisp silhouette, "
-        "simple transparent-friendly background, no clutter, no tiny joke-critical props, high contrast, designed to read at 240x240.\n"
-        f"Hard negative rules: {HARD_IMAGE_RULES}."
-    )
+    template_plan = motion_template_plan_for_entry(entry, render_frame_count)
+    if source_mode == "keyposes":
+        source_layout = parse_keypose_layout(keypose_layout)
+        frame_plan = animation_frames_for_entry(entry, render_frame_count)
+        keypose_lines = "\n".join(
+            f"Key pose {pose_index}: {description}"
+            for pose_index, description in enumerate(template_plan["keypose_beats"], start=1)
+        )
+        prompt = (
+            "Create one raw no-text keypose sheet for a Chinese WeChat animated meme GIF sticker pack.\n"
+            f"Character card: {character_card}\n"
+            f"Subject reminder: {subject.strip() or 'uploaded reference character'}.\n"
+            f"Visual style: {style_prompt(style)}.\n"
+            f"Persona context: {persona}; useful visual cues: {persona_prompt(persona)}.\n"
+            f"Meme item {index:02d}: {entry.name}. Chat send scenario: {entry.scene}. "
+            f"The final Chinese caption will be added later by a local processor as \"{caption}\"; do not draw any text.\n"
+            "Sendability gate: this must be a sticker people want to send, not just a nice illustration. "
+            f"Reuse trigger: {sendability_gate['reuse_trigger']}. Emotional value: {sendability_gate['emotional_value']}. "
+            f"Creative hook: {sendability_gate['creative_hook']}. If it is only cute or decorative, generic, or not useful as a chat reply, it fails.\n"
+            f"Acting direction: {entry.motion}. Motion template: {template_plan['motion_template']}. "
+            "The four key poses must be stable source poses for deterministic local animation, not a full freehand animation sheet.\n"
+            f"{keypose_prompt_rules(source_layout, render_frame_count)}\n"
+            f"{motion_profile_prompt(motion_profile)}\n"
+            f"Four keypose acting plan:\n{keypose_lines}\n"
+            f"Local render timeline summary: {render_frame_count} frames will be rendered from these key poses by the processor; keep pose identity and props compatible with that timeline. "
+            f"The processor will add these local non-text effects later: {', '.join(template_plan['local_effects']) or 'none'}; do not draw them as random one-frame details.\n"
+            f"Continuity acceptance: {template_plan['continuity_acceptance']}.\n"
+            f"Tone: {tone}; funny, slightly unhinged, but safe for public WeChat review.\n"
+            "Composition: one character only, centered, full character or large bust visible, oversized readable face, crisp silhouette, "
+            "simple transparent-friendly background, no clutter, no tiny joke-critical props, high contrast, designed to read at 240x240.\n"
+            f"Hard negative rules: {HARD_IMAGE_RULES}."
+        )
+        frame_count = render_frame_count
+        raw_layout = source_layout
+    else:
+        raw_layout = animation_layout
+        rows, cols = parse_sheet_layout(animation_layout)
+        frame_plan = animation_frames_for_entry(entry, rows * cols)
+        frame_lines = "\n".join(
+            f"Frame {frame_index}: {description}" for frame_index, description in enumerate(frame_plan, start=1)
+        )
+        frame_count = len(frame_plan)
+        prompt = (
+            "Create one raw no-text motion sheet for a Chinese WeChat animated meme GIF sticker pack.\n"
+            f"Character card: {character_card}\n"
+            f"Subject reminder: {subject.strip() or 'uploaded reference character'}.\n"
+            f"Visual style: {style_prompt(style)}.\n"
+            f"Persona context: {persona}; useful visual cues: {persona_prompt(persona)}.\n"
+            f"Meme item {index:02d}: {entry.name}. Chat send scenario: {entry.scene}. "
+            f"The final Chinese caption will be added later by a local processor as \"{caption}\"; do not draw any text.\n"
+            "Sendability gate: this must be a sticker people want to send, not just a nice illustration. "
+            f"Reuse trigger: {sendability_gate['reuse_trigger']}. Emotional value: {sendability_gate['emotional_value']}. "
+            f"Creative hook: {sendability_gate['creative_hook']}. If it is only cute or decorative, generic, or not useful as a chat reply, it fails.\n"
+            f"Acting direction: exaggerated readable reaction, {entry.motion}; make the emotion understandable before the caption is added.\n"
+            f"{sheet_prompt_rules(animation_layout)}\n"
+            f"{motion_profile_prompt(motion_profile)}\n"
+            f"Frame-by-frame acting plan:\n{frame_lines}\n"
+            "Motion continuity: use small readable in-between changes between neighboring frames; avoid flicker, teleporting hands, changing camera distance, changing face proportions, or adding/removing props that are not in the frame plan.\n"
+            f"Tone: {tone}; funny, slightly unhinged, but safe for public WeChat review.\n"
+            "Composition: one character only, centered, full character or large bust visible, oversized readable face, crisp silhouette, "
+            "simple transparent-friendly background, no clutter, no tiny joke-critical props, high contrast, designed to read at 240x240.\n"
+            f"Hard negative rules: {HARD_IMAGE_RULES}."
+        )
     return {
         "index": index,
         "name": entry.name,
@@ -659,7 +1012,16 @@ def image_prompt_for_entry(
         "motion_type": entry.motion,
         "motion": entry.motion,
         "motion_profile": motion_profile,
-        "animation_layout": animation_layout,
+        "source_mode": source_mode,
+        "animation_layout": raw_layout,
+        "keypose_layout": keypose_layout if source_mode == "keyposes" else "",
+        "render_frame_count": render_frame_count if source_mode == "keyposes" else frame_count,
+        "motion_template": template_plan["motion_template"],
+        "keypose_beats": template_plan["keypose_beats"],
+        "timeline": template_plan["timeline"],
+        "local_effects": template_plan["local_effects"],
+        "qc_policy": template_plan["qc_policy"],
+        "continuity_acceptance": template_plan["continuity_acceptance"],
         "frames": frame_plan,
         "frame_beats": frame_plan,
         "8_frame_beats": frame_plan if frame_count == 8 else frame_plan[:8],
@@ -667,9 +1029,9 @@ def image_prompt_for_entry(
         "visual_gag": visual_gag_for_entry(entry),
         "sendability_gate": sendability_gate,
         "negative_prompt": HARD_IMAGE_RULES,
-        "qc_acceptance": qc_acceptance_for_entry(animation_layout),
-        "regenerate_hint": regenerate_hint_for_entry(entry, animation_layout),
-        "raw_image_filename": f"{index:02d}-{slug_filename(entry.name)}-{animation_layout}.png",
+        "qc_acceptance": qc_acceptance_for_entry(raw_layout),
+        "regenerate_hint": template_plan["regenerate_hint"] if source_mode == "keyposes" else regenerate_hint_for_entry(entry, animation_layout),
+        "raw_image_filename": f"{index:02d}-{slug_filename(entry.name)}-{raw_layout}.png",
         "prompt": prompt,
     }
 
@@ -689,14 +1051,34 @@ def plan_pack(
     pack_name: str = "Agent Meme Pack",
     animation_layout: str = DEFAULT_ANIMATION_LAYOUT,
     quality_mode: str = "submission",
+    source_mode: str = DEFAULT_SOURCE_MODE,
+    keypose_layout: str = DEFAULT_KEYPOSE_LAYOUT,
+    render_frame_count: int = DEFAULT_RENDER_FRAME_COUNT,
 ) -> dict:
     validate_pack_size(pack_size, mode)
-    parse_sheet_layout(animation_layout)
+    source_mode = parse_source_mode(source_mode)
+    if source_mode == "keyposes":
+        source_layout = parse_keypose_layout(keypose_layout)
+    else:
+        parse_sheet_layout(animation_layout)
+        source_layout = animation_layout
     parse_quality_mode(quality_mode)
     entries = default_entries(persona, pack_size)
     character_card = build_character_card(subject, style, reference_image)
     prompts = [
-        image_prompt_for_entry(entry, index, subject, persona, style, character_card, tone, animation_layout)
+        image_prompt_for_entry(
+            entry,
+            index,
+            subject,
+            persona,
+            style,
+            character_card,
+            tone,
+            animation_layout,
+            source_mode,
+            keypose_layout,
+            render_frame_count,
+        )
         for index, entry in enumerate(entries, start=1)
     ]
     pack_slug = slug_filename(pack_name)
@@ -721,10 +1103,17 @@ def plan_pack(
         "--pack-name",
         pack_name,
         "--source-layout",
-        animation_layout,
+        source_layout,
+        "--source-mode",
+        source_mode,
+        "--keypose-layout",
+        keypose_layout,
+        "--render-frame-count",
+        str(render_frame_count),
         "--quality-mode",
         quality_mode,
         "--strict-qc",
+        "--strict-continuity-qc",
     ]
     accept_generated_command_args = [
         "python",
@@ -750,13 +1139,22 @@ def plan_pack(
         "mode": mode,
         "tone": tone,
         "quality_mode": quality_mode,
+        "source_mode": source_mode,
         "raw_output_dir": raw_output_dir,
         "character_card": character_card,
         "animation": {
-            "source_layout": animation_layout,
-            "frames_per_sticker": parse_sheet_layout(animation_layout)[0] * parse_sheet_layout(animation_layout)[1],
+            "source_mode": source_mode,
+            "source_layout": source_layout,
+            "keypose_layout": keypose_layout if source_mode == "keyposes" else "",
+            "keypose_count": parse_sheet_layout(keypose_layout)[0] * parse_sheet_layout(keypose_layout)[1]
+            if source_mode == "keyposes"
+            else 0,
+            "frames_per_sticker": parse_sheet_layout(source_layout)[0] * parse_sheet_layout(source_layout)[1],
+            "rendered_frame_count": render_frame_count if source_mode == "keyposes" else parse_sheet_layout(source_layout)[0] * parse_sheet_layout(source_layout)[1],
             "quality_mode": quality_mode,
-            "rules": sheet_prompt_rules(animation_layout),
+            "rules": keypose_prompt_rules(keypose_layout, render_frame_count)
+            if source_mode == "keyposes"
+            else sheet_prompt_rules(animation_layout),
         },
         "meme_quality_bar": MEME_QUALITY_BAR,
         "items": [asdict(entry) for entry in entries],
@@ -775,12 +1173,12 @@ def plan_pack(
         "agent_instructions": [
             "MUST call built-in image_gen for the first 3 image_prompts before committing to all 24 when the current agent session exposes an image generation tool. Do not stop after writing the plan or tell the user to call image_gen manually unless the tool is unavailable. Save each raw no-text motion sheet exactly as raw_image_filename.",
             "After each image_gen result is saved/exported as a local image, run meme_pack.py accept-generated with the plan JSON, sticker index, generated image path, and raw output directory so QC/build-pack can find the exact planned filename.",
-            f"Run meme_pack.py qc-sheet --source-layout {animation_layout} --quality-mode {quality_mode} on those first 3 accepted sheets and regenerate any fail or weak warning using regenerate_hint.",
+            f"Run meme_pack.py qc-sheet --source-mode {source_mode} --source-layout {source_layout} --quality-mode {quality_mode} on those first 3 accepted sheets and regenerate any fail or weak warning using regenerate_hint.",
             "After the first 3 sheets pass QC, call image_gen once per remaining image_prompt to generate one no-text motion sheet per sticker.",
             f"Save raw generated no-text images using raw_image_filename under {raw_output_dir}; accept-generated writes generated-index.json as the handoff audit trail.",
             "Replace any weak joke before generation: every sticker must pass meme_quality_bar and image_prompts[].sendability_gate; if it is only cute or decorative, rewrite the caption, scene, visual gag, and motion.",
             "Reject and regenerate any raw sheet that contains text, speech bubbles, official logos, brand marks, wrong grid count, a tiny face, edge-crossing props, or a character that drifts from the character card.",
-            f"After raw sheets are accepted, run meme_pack.py build-pack with --source-layout {animation_layout} --quality-mode {quality_mode} --strict-qc plus the same persona, style, pack_size, mode, and pack_name.",
+            f"After raw sheets are accepted, run meme_pack.py build-pack with --source-mode {source_mode} --source-layout {source_layout} --quality-mode {quality_mode} --strict-qc --strict-continuity-qc plus the same persona, style, pack_size, mode, and pack_name.",
         ],
         "processor_command_args": processor_command_args,
         "processor_command": shell_join(processor_command_args),
@@ -841,6 +1239,21 @@ def _wrap_text(text: str, font: ImageFont.ImageFont, max_width: int) -> list[str
     return lines or [""]
 
 
+def _caption_text_candidates(text: str) -> list[str]:
+    normalized = text.replace("\\n", "\n").strip()
+    blocks = [block.strip() for block in normalized.splitlines() if block.strip()]
+    candidates: list[str] = []
+    if len(blocks) > 1:
+        candidates.append("".join(blocks))
+        candidates.append(" ".join(blocks))
+    candidates.append(normalized)
+    unique: list[str] = []
+    for candidate in candidates:
+        if candidate and candidate not in unique:
+            unique.append(candidate)
+    return unique or [""]
+
+
 def _truncate_line_to_width(text: str, font: ImageFont.ImageFont, max_width: int) -> str:
     ellipsis = "…"
     if _text_size(text, font)[0] <= max_width:
@@ -875,6 +1288,18 @@ def fit_text_lines(
     max_font_size: int = 34,
     min_font_size: int = 16,
 ) -> tuple[list[str], ImageFont.ImageFont]:
+    single_line_min_size = max(min_font_size, min(max_font_size, 26))
+    for size in range(max_font_size, single_line_min_size - 1, -1):
+        font = _font(font_path, size)
+        for candidate in _caption_text_candidates(text):
+            lines = _wrap_text(candidate, font, max_width)
+            line_height = max(_text_size(line, font)[1] for line in lines) + 6
+            if (
+                len(lines) == 1
+                and line_height <= max_height
+                and all(_text_size(line, font)[0] <= max_width for line in lines)
+            ):
+                return lines, font
     for size in range(max_font_size, min_font_size - 1, -1):
         font = _font(font_path, size)
         lines = _wrap_text(text, font, max_width)
@@ -884,6 +1309,18 @@ def fit_text_lines(
     font = _font(font_path, min_font_size)
     lines = _wrap_text(text, font, max_width)
     return _truncate_lines_to_height(lines, font, max_width, max_height), font
+
+
+def caption_text_height(lines: list[str], font: ImageFont.ImageFont) -> int:
+    line_boxes = [_text_size(line, font) for line in lines]
+    line_height = max(height for _, height in line_boxes) + 6
+    return line_height * len(lines)
+
+
+def caption_reserved_height_for_text(text: str, font_path: str) -> int:
+    lines, font = fit_text_lines(text, font_path, max_width=214, max_height=CAPTION_RESERVED_HEIGHT)
+    reserved = caption_text_height(lines, font) + CAPTION_BOTTOM_PADDING - CAPTION_ALLOWED_SUBJECT_OVERLAP
+    return max(MIN_CAPTION_RESERVED_HEIGHT, min(CAPTION_RESERVED_HEIGHT, reserved))
 
 
 def slug_filename(name: str) -> str:
@@ -1300,9 +1737,11 @@ def qc_sheet(
     quality_mode: str = "submission",
     strict: bool = True,
     motion_profile: str = "standard",
+    source_mode: str = "motion_sheet",
 ) -> dict:
     quality_mode = parse_quality_mode(quality_mode)
     motion_profile = parse_motion_profile(motion_profile)
+    source_mode = parse_source_mode(source_mode)
     image = Image.open(input_path)
     errors: list[str] = []
     warnings: list[str] = []
@@ -1333,18 +1772,28 @@ def qc_sheet(
     if required_layout and detected_layout != required_layout:
         errors.append(f"{quality_mode} mode requires {required_layout} motion sheets; got {detected_layout}")
     required_layouts = limits.get("required_layouts")
-    if required_layouts and detected_layout not in required_layouts:
+    if quality_mode == "submission":
+        if source_mode == "keyposes":
+            required_layouts = KEYPOSE_LAYOUTS
+        elif source_mode == "motion_sheet":
+            required_layouts = MOTION_SHEET_LAYOUTS
+    if required_layouts and source_mode != "single_bounce" and detected_layout not in required_layouts:
         allowed = ", ".join(sorted(required_layouts))
-        errors.append(f"{quality_mode} mode requires one of {allowed} motion sheets; got {detected_layout}")
-    if bool(limits["require_multiframe"]) and len(frames) <= 1:
+        errors.append(f"{quality_mode} mode requires one of {allowed} {source_mode} sheets; got {detected_layout}")
+    if bool(limits["require_multiframe"]) and source_mode != "single_bounce" and len(frames) <= 1:
         errors.append("single_bounce sources are preview-only; use a real 2x4 or 4x4 motion sheet for submission")
+    if source_mode == "single_bounce" and quality_mode == "submission":
+        errors.append("single_bounce sources are preview-only; use keyposes or 2x4 motion sheets for submission")
     if detected_layout in SHEET_LAYOUTS:
         expected_count = parse_sheet_layout(detected_layout)[0] * parse_sheet_layout(detected_layout)[1]
         if len(frames) != expected_count:
             errors.append(f"expected {expected_count} frames for {detected_layout}, got {len(frames)}")
+    frame_qc_profile = "action" if source_mode == "keyposes" else motion_profile
     frame_reports, frame_warnings, frame_errors, drift, edge_touch = analyze_frames_for_qc(
-        frames, quality_mode, motion_profile
+        frames, quality_mode, frame_qc_profile
     )
+    if source_mode == "keyposes":
+        frame_errors = [error for error in frame_errors if not error.startswith("frame size drift")]
     warnings.extend(frame_warnings)
     errors.extend(frame_errors)
 
@@ -1356,6 +1805,7 @@ def qc_sheet(
         "input": str(input_path),
         "status": status,
         "quality_mode": quality_mode,
+        "source_mode": source_mode,
         "motion_profile": motion_profile,
         "strict": strict,
         "animation_source": animation_source,
@@ -1453,6 +1903,506 @@ def normalize_motion_frames(
     }
 
 
+def _transform_canvas_sprite(frame: Image.Image, step: dict[str, float | int]) -> Image.Image:
+    bbox = frame.getbbox()
+    canvas = Image.new("RGBA", frame.size, (0, 0, 0, 0))
+    if not bbox:
+        return canvas
+    sprite = frame.crop(bbox)
+    scale = float(step.get("scale", 1.0))
+    rotation = float(step.get("rotation", 0.0))
+    dx = int(round(float(step.get("dx", 0))))
+    dy = int(round(float(step.get("dy", 0))))
+    opacity = float(step.get("opacity", 1.0))
+    if abs(scale - 1.0) > 0.001:
+        new_size = (max(1, int(sprite.width * scale)), max(1, int(sprite.height * scale)))
+        sprite = sprite.resize(new_size, Image.Resampling.LANCZOS)
+    if abs(rotation) > 0.001:
+        sprite = sprite.rotate(rotation, resample=Image.Resampling.BICUBIC, expand=True)
+    if opacity < 1.0:
+        alpha = sprite.getchannel("A").point(lambda value: int(value * max(0.0, min(1.0, opacity))))
+        sprite.putalpha(alpha)
+    center_x = (bbox[0] + bbox[2]) / 2 + dx
+    center_y = (bbox[1] + bbox[3]) / 2 + dy
+    x = int(round(center_x - sprite.width / 2))
+    y = int(round(center_y - sprite.height / 2))
+    canvas.alpha_composite(sprite, (x, y))
+    return canvas
+
+
+def _draw_template_effects(frame: Image.Image, template_id: str, frame_index: int, step: dict[str, float | int]) -> Image.Image:
+    effect = str(step.get("effect", ""))
+    if not effect:
+        return frame
+    bbox = frame.getbbox()
+    if not bbox:
+        return frame
+    canvas = frame.copy()
+    draw = ImageDraw.Draw(canvas, "RGBA")
+    x0, y0, x1, y1 = bbox
+    width = x1 - x0
+    head_x = (x0 + x1) / 2
+    head_y = y0 + max(10, (y1 - y0) * 0.22)
+    phase = frame_index % 16
+
+    if template_id == "soul_offline" and effect == "soul_puff":
+        lift = max(0, phase - 5) * 2
+        cx = int(min(210, max(30, head_x + width * 0.20)))
+        cy = int(max(16, head_y - 18 - lift))
+        draw.ellipse((cx - 9, cy - 11, cx + 9, cy + 11), fill=(245, 245, 255, 160), outline=(72, 95, 180, 210), width=2)
+        draw.ellipse((cx - 3, cy - 5, cx + 3, cy + 2), fill=(72, 95, 180, 160))
+        draw.ellipse((cx - 16, cy + 10, cx - 8, cy + 18), fill=(245, 245, 255, 130), outline=(72, 95, 180, 180), width=1)
+        draw.ellipse((cx - 23, cy + 22, cx - 18, cy + 27), fill=(245, 245, 255, 110), outline=(72, 95, 180, 150), width=1)
+    elif template_id == "loading_loop" and effect == "loading_dots":
+        base_x = int(min(206, max(34, head_x + width * 0.28)))
+        base_y = int(max(22, min(118, head_y - 8)))
+        active = phase % 3
+        for dot in range(3):
+            radius = 4 + (2 if dot == active else 0)
+            alpha = 235 if dot == active else 145
+            dx = dot * 11
+            draw.ellipse(
+                (base_x + dx - radius, base_y - radius, base_x + dx + radius, base_y + radius),
+                fill=(80, 135, 255, alpha),
+                outline=(30, 65, 160, min(255, alpha + 10)),
+                width=1,
+            )
+    elif template_id == "pretend_understand" and effect in {"sweat_drop", "awkward_lines"}:
+        sx = int(min(212, max(34, head_x + width * 0.32)))
+        sy = int(max(20, min(120, head_y - 2)))
+        if 5 <= phase <= 10:
+            drop = [(sx, sy - 8), (sx + 7, sy + 5), (sx - 5, sy + 6)]
+            draw.polygon(drop, fill=(90, 165, 255, 205), outline=(40, 80, 180, 230))
+        if 6 <= phase <= 11:
+            lx = int(max(18, head_x - width * 0.42))
+            ly = int(max(16, head_y - 10))
+            for offset in (0, 8, 16):
+                draw.line((lx - 3, ly + offset, lx - 13, ly + offset - 5), fill=(95, 105, 190, 190), width=3)
+    return canvas
+
+
+def render_keypose_motion(
+    raw_keyposes: list[Image.Image],
+    motion_template: str,
+    frame_count: int = DEFAULT_RENDER_FRAME_COUNT,
+    motion_profile: str = "standard",
+    caption_reserved_height: int = CAPTION_RESERVED_HEIGHT,
+) -> tuple[list[Image.Image], dict[str, object]]:
+    if motion_template not in MOTION_TEMPLATE_IDS:
+        motion_template = "steady_breath"
+    motion_profile = parse_motion_profile(motion_profile)
+    if len(raw_keyposes) < 2:
+        raise ValueError("keypose rendering requires at least 2 key poses.")
+    normalized_keyposes, normalization_meta = normalize_motion_frames(
+        raw_keyposes,
+        caption_reserved_height=caption_reserved_height,
+        alignment_mode=alignment_mode_for_profile(motion_profile),
+    )
+    timeline = timeline_for_template(motion_template, frame_count)
+    rendered: list[Image.Image] = []
+    for index, step in enumerate(timeline):
+        pose_index = max(1, min(len(normalized_keyposes), int(step.get("pose", 1)))) - 1
+        transformed = _transform_canvas_sprite(normalized_keyposes[pose_index], step)
+        rendered.append(_draw_template_effects(transformed, motion_template, index, step))
+    return rendered, {
+        **normalization_meta,
+        "source_mode": "keyposes",
+        "motion_template": motion_template,
+        "local_effects": local_effects_for_template(motion_template),
+        "qc_policy": qc_policy_for_template(motion_template),
+        "rendered_frame_count": len(rendered),
+        "keypose_count": len(raw_keyposes),
+        "caption_reserved_height": caption_reserved_height,
+        "timeline": timeline,
+    }
+
+
+def _subject_zone(frame: Image.Image, caption_reserved_height: int = CAPTION_RESERVED_HEIGHT) -> Image.Image:
+    return frame.convert("RGBA").crop((0, 0, frame.width, max(1, frame.height - caption_reserved_height)))
+
+
+def _alpha_bbox_area_center(frame: Image.Image) -> tuple[tuple[int, int, int, int] | None, int, tuple[float, float] | None]:
+    cleaned = clean_generated_frame_background(frame)
+    components = [
+        component
+        for component in connected_components(cleaned, min_area=24)
+        if not _component_artifact_reason(cleaned, component)
+    ]
+    if components:
+        bbox = tuple(components[0]["bbox"])
+        area = int(components[0]["area"])
+    else:
+        alpha = cleaned.convert("RGBA").getchannel("A")
+        bbox = alpha.point(lambda value: 255 if value > 24 else 0).getbbox()
+        area = sum(1 for value in pixel_data(alpha) if value > 24)
+    center = None
+    if bbox:
+        center = ((bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2)
+    return bbox, area, center
+
+
+def _head_proxy_for_frame(
+    frame: Image.Image,
+    caption_reserved_height: int = CAPTION_RESERVED_HEIGHT,
+) -> dict[str, object] | None:
+    zone = clean_generated_frame_background(_subject_zone(frame, caption_reserved_height))
+    components = [
+        component
+        for component in connected_components(zone, min_area=24)
+        if not _component_artifact_reason(zone, component)
+    ]
+    if not components:
+        return None
+    bbox = tuple(components[0]["bbox"])
+    x0, y0, x1, y1 = bbox
+    height = max(1, y1 - y0)
+    head_bbox = (x0, y0, x1, min(y1, y0 + max(12, int(height * 0.54))))
+    crop = zone.crop(head_bbox).getchannel("A").point(lambda value: 255 if value > 24 else 0)
+    mask = crop.resize((48, 48), Image.Resampling.BILINEAR)
+    center = ((head_bbox[0] + head_bbox[2]) / 2, (head_bbox[1] + head_bbox[3]) / 2)
+    aspect = (head_bbox[2] - head_bbox[0]) / max(1, head_bbox[3] - head_bbox[1])
+    return {"bbox": head_bbox, "center": center, "mask": mask, "aspect": aspect}
+
+
+def _mask_difference(left: Image.Image, right: Image.Image) -> float:
+    total = 0.0
+    count = 0
+    for left_value, right_value in zip(pixel_data(left), pixel_data(right)):
+        total += abs(int(left_value) - int(right_value)) / 255
+        count += 1
+    return total / max(1, count)
+
+
+def _head_shape_report(frames: list[Image.Image], caption_reserved_height: int, motion_profile: str) -> dict[str, object]:
+    proxies = [_head_proxy_for_frame(frame, caption_reserved_height) for frame in frames]
+    valid = [proxy for proxy in proxies if proxy]
+    if len(valid) < 2:
+        return {"face_shape_drift_score": 0.0, "max_head_center_step_px": 0.0}
+
+    shape_scores: list[float] = []
+    center_steps: list[float] = []
+    for index in range(len(proxies)):
+        current = proxies[index]
+        nxt = proxies[(index + 1) % len(proxies)]
+        if not current or not nxt:
+            continue
+        mask_drift = _mask_difference(current["mask"], nxt["mask"])
+        aspect_left = float(current["aspect"])
+        aspect_right = float(nxt["aspect"])
+        aspect_drift = abs(aspect_right - aspect_left) / max(0.1, min(aspect_left, aspect_right))
+        shape_scores.append(max(mask_drift, aspect_drift))
+        left_center = current["center"]
+        right_center = nxt["center"]
+        center_steps.append(math.hypot(right_center[0] - left_center[0], right_center[1] - left_center[1]))
+
+    return {
+        "face_shape_drift_score": round(max(shape_scores) if shape_scores else 0.0, 4),
+        "max_head_center_step_px": round(max(center_steps) if center_steps else 0.0, 2),
+    }
+
+
+def _visible_frame_delta(left: Image.Image, right: Image.Image, caption_reserved_height: int = CAPTION_RESERVED_HEIGHT) -> dict[str, float]:
+    left_rgba = _subject_zone(left, caption_reserved_height)
+    right_rgba = _subject_zone(right, caption_reserved_height)
+    visible = 0
+    rgb_delta = 0.0
+    alpha_delta = 0.0
+    for left_pixel, right_pixel in zip(pixel_data(left_rgba), pixel_data(right_rgba)):
+        left_alpha = left_pixel[3]
+        right_alpha = right_pixel[3]
+        if left_alpha <= 24 and right_alpha <= 24:
+            continue
+        visible += 1
+        rgb_delta += (
+            abs(left_pixel[0] - right_pixel[0])
+            + abs(left_pixel[1] - right_pixel[1])
+            + abs(left_pixel[2] - right_pixel[2])
+        ) / (255 * 3)
+        alpha_delta += abs(left_alpha - right_alpha) / 255
+    if not visible:
+        return {"rgb": 0.0, "alpha": 0.0}
+    return {"rgb": rgb_delta / visible, "alpha": alpha_delta / visible}
+
+
+def _component_count_for_frame(frame: Image.Image, caption_reserved_height: int = CAPTION_RESERVED_HEIGHT) -> int:
+    cleaned = clean_generated_frame_background(_subject_zone(frame, caption_reserved_height))
+    _, info = filter_subject_components(cleaned, min_component_area=5)
+    return int(info.get("kept_component_count", info.get("component_count", 0)))
+
+
+def _bbox_iou(left: tuple[int, int, int, int], right: tuple[int, int, int, int]) -> float:
+    lx0, ly0, lx1, ly1 = left
+    rx0, ry0, rx1, ry1 = right
+    ix0 = max(lx0, rx0)
+    iy0 = max(ly0, ry0)
+    ix1 = min(lx1, rx1)
+    iy1 = min(ly1, ry1)
+    if ix1 <= ix0 or iy1 <= iy0:
+        return 0.0
+    intersection = (ix1 - ix0) * (iy1 - iy0)
+    left_area = max(1, (lx1 - lx0) * (ly1 - ly0))
+    right_area = max(1, (rx1 - rx0) * (ry1 - ry0))
+    return intersection / max(1, left_area + right_area - intersection)
+
+
+def _prop_components_for_frame(frame: Image.Image, caption_reserved_height: int = CAPTION_RESERVED_HEIGHT) -> list[dict[str, object]]:
+    cleaned = clean_generated_frame_background(_subject_zone(frame, caption_reserved_height))
+    components = [
+        component
+        for component in connected_components(cleaned, min_area=24)
+        if not _component_artifact_reason(cleaned, component)
+    ]
+    if len(components) <= 1:
+        return []
+    largest_area = int(components[0]["area"])
+    min_prop_area = max(120, int(largest_area * 0.018))
+    props: list[dict[str, object]] = []
+    for component in components[1:]:
+        area = int(component["area"])
+        if area < min_prop_area:
+            continue
+        bbox = tuple(component["bbox"])
+        center = ((bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2)
+        props.append({"bbox": bbox, "center": center, "area": area})
+    return props
+
+
+def _component_matches(left: dict[str, object], right: dict[str, object]) -> bool:
+    left_bbox = tuple(left["bbox"])
+    right_bbox = tuple(right["bbox"])
+    if _bbox_iou(left_bbox, right_bbox) >= 0.16:
+        return True
+    left_center = left["center"]
+    right_center = right["center"]
+    distance = math.hypot(right_center[0] - left_center[0], right_center[1] - left_center[1])
+    area_scale = math.sqrt(max(float(left["area"]), float(right["area"])))
+    return distance <= max(18.0, area_scale * 0.8)
+
+
+def _bbox_has_visible_alpha(
+    frame: Image.Image,
+    bbox: tuple[int, int, int, int],
+    component_area: int,
+    caption_reserved_height: int = CAPTION_RESERVED_HEIGHT,
+) -> bool:
+    zone = _subject_zone(frame, caption_reserved_height).convert("RGBA")
+    x0 = max(0, bbox[0] - 4)
+    y0 = max(0, bbox[1] - 4)
+    x1 = min(zone.width, bbox[2] + 4)
+    y1 = min(zone.height, bbox[3] + 4)
+    if x1 <= x0 or y1 <= y0:
+        return False
+    alpha = zone.crop((x0, y0, x1, y1)).getchannel("A")
+    visible = sum(1 for value in pixel_data(alpha) if value > 24)
+    return visible >= max(32, int(component_area * 0.28))
+
+
+def _transient_component_frames(frames: list[Image.Image], caption_reserved_height: int = CAPTION_RESERVED_HEIGHT) -> list[int]:
+    per_frame = [_prop_components_for_frame(frame, caption_reserved_height) for frame in frames]
+    transient_frames: list[int] = []
+    for index, components in enumerate(per_frame):
+        previous_components = per_frame[index - 1]
+        next_components = per_frame[(index + 1) % len(per_frame)]
+        for component in components:
+            has_previous = any(_component_matches(component, previous) for previous in previous_components)
+            has_next = any(_component_matches(component, next_component) for next_component in next_components)
+            bbox = tuple(component["bbox"])
+            area = int(component["area"])
+            has_previous_alpha = _bbox_has_visible_alpha(frames[index - 1], bbox, area, caption_reserved_height)
+            has_next_alpha = _bbox_has_visible_alpha(frames[(index + 1) % len(frames)], bbox, area, caption_reserved_height)
+            if not has_previous and not has_next and not has_previous_alpha and not has_next_alpha:
+                transient_frames.append(index + 1)
+                break
+    return transient_frames
+
+
+def _nearest_prop(left: dict[str, object], candidates: list[dict[str, object]]) -> tuple[dict[str, object] | None, float]:
+    nearest: dict[str, object] | None = None
+    nearest_distance = float("inf")
+    left_center = left["center"]
+    for candidate in candidates:
+        candidate_center = candidate["center"]
+        distance = math.hypot(candidate_center[0] - left_center[0], candidate_center[1] - left_center[1])
+        if distance < nearest_distance:
+            nearest = candidate
+            nearest_distance = distance
+    return nearest, nearest_distance
+
+
+def _prop_motion_report(frames: list[Image.Image], caption_reserved_height: int = CAPTION_RESERVED_HEIGHT) -> dict[str, object]:
+    per_frame = [_prop_components_for_frame(frame, caption_reserved_height) for frame in frames]
+    transient_frames = _transient_component_frames(frames, caption_reserved_height)
+    lifecycle_errors = [f"one-frame prop at frame {frame}" for frame in transient_frames]
+    max_position_jump = 0.0
+    max_area_jump = 0.0
+
+    for index, components in enumerate(per_frame):
+        next_components = per_frame[(index + 1) % len(per_frame)]
+        for component in components:
+            nearest, distance = _nearest_prop(component, next_components)
+            if not nearest:
+                continue
+            area_left = max(1.0, float(component["area"]))
+            area_right = max(1.0, float(nearest["area"]))
+            area_jump = abs(area_right - area_left) / min(area_left, area_right)
+            max_position_jump = max(max_position_jump, distance)
+            max_area_jump = max(max_area_jump, area_jump)
+            similar_size = area_jump <= PROP_QC_LIMITS["max_area_jump"] * 1.25
+            if distance > PROP_QC_LIMITS["max_position_jump"] and similar_size:
+                lifecycle_errors.append(f"prop position jump at frame {index + 1}->{(index + 1) % len(per_frame) + 1}: {distance:.1f}px")
+            if area_jump > PROP_QC_LIMITS["max_area_jump"] and distance <= PROP_QC_LIMITS["max_position_jump"]:
+                lifecycle_errors.append(f"prop area jump at frame {index + 1}->{(index + 1) % len(per_frame) + 1}: {area_jump:.2f}")
+
+    return {
+        "transient_component_frames": transient_frames,
+        "prop_lifecycle_errors": sorted(set(lifecycle_errors)),
+        "prop_position_jump": round(max_position_jump, 2),
+        "prop_area_jump": round(max_area_jump, 4),
+        "prop_counts": [len(components) for components in per_frame],
+    }
+
+
+def continuity_qc(
+    frames: list[Image.Image],
+    quality_mode: str = "submission",
+    motion_profile: str = "standard",
+    motion_template: str = "",
+    strict: bool = True,
+    caption_reserved_height: int = CAPTION_RESERVED_HEIGHT,
+) -> dict[str, object]:
+    parse_quality_mode(quality_mode)
+    motion_profile = parse_motion_profile(motion_profile)
+    errors: list[str] = []
+    warnings: list[str] = []
+    if len(frames) < 2:
+        errors.append("continuity QC requires at least 2 rendered frames")
+        return {
+            "status": "fail",
+            "warnings": warnings,
+            "errors": errors,
+            "metrics": {},
+            "loop_closure_score": 1.0,
+            "motion_energy_score": 0.0,
+        }
+
+    limits = CONTINUITY_LIMITS[motion_profile]
+    zones = [_subject_zone(frame, caption_reserved_height) for frame in frames]
+    bboxes: list[tuple[int, int, int, int] | None] = []
+    areas: list[int] = []
+    centers: list[tuple[float, float] | None] = []
+    caption_zone_ratios: list[float] = []
+    for frame, zone in zip(frames, zones):
+        bbox, area, center = _alpha_bbox_area_center(zone)
+        bboxes.append(bbox)
+        areas.append(area)
+        centers.append(center)
+        caption_zone = frame.convert("RGBA").crop((0, max(0, frame.height - caption_reserved_height), frame.width, frame.height))
+        caption_alpha = sum(1 for value in pixel_data(caption_zone.getchannel("A")) if value > 24)
+        caption_zone_ratios.append(caption_alpha / max(1, caption_zone.width * caption_zone.height))
+
+    deltas = [
+        _visible_frame_delta(frames[index], frames[(index + 1) % len(frames)], caption_reserved_height)
+        for index in range(len(frames))
+    ]
+    non_loop_deltas = deltas[:-1] or deltas
+    rgb_steps = [delta["rgb"] for delta in non_loop_deltas]
+    alpha_steps = [delta["alpha"] for delta in non_loop_deltas]
+    loop_delta = deltas[-1]
+    center_steps: list[float] = []
+    area_jumps: list[float] = []
+    for index in range(len(frames)):
+        next_index = (index + 1) % len(frames)
+        if centers[index] and centers[next_index]:
+            center_steps.append(math.hypot(centers[next_index][0] - centers[index][0], centers[next_index][1] - centers[index][1]))
+        median_area = max(1.0, _median([float(area) for area in areas if area > 0]))
+        area_jumps.append(abs(areas[next_index] - areas[index]) / median_area)
+
+    component_counts = [_component_count_for_frame(frame, caption_reserved_height) for frame in frames]
+    median_components = _median([float(count) for count in component_counts])
+    count_spike_frames: list[int] = []
+    for index, count in enumerate(component_counts):
+        previous_count = component_counts[index - 1]
+        next_count = component_counts[(index + 1) % len(component_counts)]
+        if count >= median_components + 4 and previous_count <= median_components + 1 and next_count <= median_components + 1:
+            count_spike_frames.append(index + 1)
+    prop_report = _prop_motion_report(frames, caption_reserved_height)
+    one_frame_effects = sorted(set(count_spike_frames + list(prop_report["transient_component_frames"])))
+    head_report = _head_shape_report(frames, caption_reserved_height, motion_profile)
+
+    max_rgb_step = max(rgb_steps) if rgb_steps else 0.0
+    max_alpha_step = max(alpha_steps) if alpha_steps else 0.0
+    max_area_jump = max(area_jumps) if area_jumps else 0.0
+    max_center_step = max(center_steps) if center_steps else 0.0
+    loop_closure_score = max(loop_delta["rgb"], loop_delta["alpha"])
+    motion_energy_score = sum(rgb_steps + alpha_steps) / max(1, len(rgb_steps) + len(alpha_steps))
+    max_caption_zone_alpha = max(caption_zone_ratios) if caption_zone_ratios else 0.0
+    face_shape_drift_score = float(head_report["face_shape_drift_score"])
+    max_head_center_step = float(head_report["max_head_center_step_px"])
+    face_limits = FACE_QC_LIMITS[motion_profile]
+    template_limits = TEMPLATE_ACTING_LIMITS.get(motion_template, {})
+    max_center_step_limit = max(float(limits["max_center_step"]), float(template_limits.get("max_center_step", limits["max_center_step"])))
+    max_head_center_step_limit = max(
+        float(face_limits["max_head_center_step"]),
+        float(template_limits.get("max_head_center_step", face_limits["max_head_center_step"])),
+    )
+    max_shape_drift_limit = max(
+        float(face_limits["max_shape_drift"]),
+        float(template_limits.get("max_shape_drift", face_limits["max_shape_drift"])),
+    )
+
+    if max_rgb_step > float(limits["max_rgb_step"]):
+        errors.append(f"neighbor frame RGB jump is too high: {max_rgb_step:.3f}")
+    if max_alpha_step > float(limits["max_alpha_step"]):
+        errors.append(f"neighbor frame alpha jump is too high: {max_alpha_step:.3f}")
+    if max_area_jump > float(limits["max_area_jump"]):
+        errors.append(f"area jump is too high: {max_area_jump:.3f}")
+    if max_center_step > max_center_step_limit:
+        errors.append(f"frame center step is too high: {max_center_step:.2f}px")
+    if loop_closure_score > float(limits["max_loop_closure"]):
+        errors.append(f"loop closure jump is too high: {loop_closure_score:.3f}")
+    if motion_energy_score < float(limits["min_motion_energy"]):
+        errors.append(f"motion energy is too low: {motion_energy_score:.3f}")
+    if max_caption_zone_alpha > float(limits["max_caption_zone_alpha"]):
+        errors.append(f"subject or effect enters caption zone: {max_caption_zone_alpha:.3f}")
+    if one_frame_effects:
+        errors.append(f"prop/effect appears for only one frame: {one_frame_effects}")
+    if prop_report["prop_lifecycle_errors"]:
+        errors.extend(str(error) for error in prop_report["prop_lifecycle_errors"])
+    if face_shape_drift_score > max_shape_drift_limit:
+        errors.append(f"face/head shape drift is too high: {face_shape_drift_score:.3f}")
+    if max_head_center_step > max_head_center_step_limit:
+        errors.append(f"head center step is too high: {max_head_center_step:.2f}px")
+
+    status = "fail" if errors else ("warning" if warnings else "pass")
+    if status == "warning" and strict and quality_mode == "submission":
+        errors.extend(warnings)
+        status = "fail"
+    return {
+        "status": status,
+        "warnings": warnings,
+        "errors": errors,
+        "metrics": {
+            "max_rgb_step": round(max_rgb_step, 4),
+            "max_alpha_step": round(max_alpha_step, 4),
+            "max_area_jump": round(max_area_jump, 4),
+            "max_center_step_px": round(max_center_step, 2),
+            "max_caption_zone_alpha": round(max_caption_zone_alpha, 4),
+            "component_counts": component_counts,
+            "transient_component_frames": prop_report["transient_component_frames"],
+            "prop_lifecycle_errors": prop_report["prop_lifecycle_errors"],
+            "prop_position_jump": prop_report["prop_position_jump"],
+            "prop_area_jump": prop_report["prop_area_jump"],
+            "prop_counts": prop_report["prop_counts"],
+            "face_shape_drift_score": round(face_shape_drift_score, 4),
+            "max_head_center_step_px": round(max_head_center_step, 2),
+            "caption_reserved_height": caption_reserved_height,
+            "motion_template": motion_template,
+        },
+        "loop_closure_score": round(loop_closure_score, 4),
+        "motion_energy_score": round(motion_energy_score, 4),
+    }
+
+
 def contain(image: Image.Image, size: tuple[int, int], margin: int = 18) -> Image.Image:
     canvas = Image.new("RGBA", size, (0, 0, 0, 0))
     image = image.copy()
@@ -1469,8 +2419,8 @@ def draw_caption(frame: Image.Image, text: str, font_path: str) -> Image.Image:
     lines, font = fit_text_lines(text, font_path, max_width=214, max_height=76)
     line_boxes = [_text_size(line, font) for line in lines]
     line_height = max(height for _, height in line_boxes) + 6
-    total_height = line_height * len(lines)
-    y = 240 - total_height - 8
+    total_height = caption_text_height(lines, font)
+    y = 240 - total_height - CAPTION_BOTTOM_PADDING
     for line, (width, height) in zip(lines, line_boxes):
         x = (240 - width) // 2
         draw.text((x, y), line, font=font, fill=(255, 255, 255, 255), stroke_width=3, stroke_fill=(35, 35, 35, 255))
@@ -1627,6 +2577,16 @@ def source_images(source_dir: Path) -> list[Path]:
     return paths
 
 
+def require_source_images_for_entries(source_dir: Path, image_paths: list[Path], entry_count: int) -> None:
+    if len(image_paths) >= entry_count:
+        return
+    raise ValueError(
+        f"{source_dir} contains {len(image_paths)} source image(s) for {entry_count} entries. "
+        "Full builds do not reuse source images automatically; use build-preview for first-pass previews "
+        "or provide one generated source image per entry."
+    )
+
+
 def remove_light_background(image: Image.Image, threshold: int = 248) -> Image.Image:
     rgba = image.convert("RGBA")
     pixels = []
@@ -1709,11 +2669,18 @@ def build_pack(
     persona: str = "科研打工人",
     author: str = "Agent Meme Forge",
     source_layout: str = "auto",
+    source_mode: str = DEFAULT_SOURCE_MODE,
+    keypose_layout: str = DEFAULT_KEYPOSE_LAYOUT,
+    render_frame_count: int = DEFAULT_RENDER_FRAME_COUNT,
     quality_mode: str = "submission",
     strict_qc: bool = True,
     allow_qc_warnings: bool = False,
+    strict_continuity_qc: bool = True,
+    allow_source_reuse: bool = False,
 ) -> dict:
     quality_mode = parse_quality_mode(quality_mode)
+    source_mode = parse_source_mode(source_mode)
+    keypose_layout = parse_keypose_layout(keypose_layout)
     pack_size = validate_pack_size(len(entries), mode)
     if source_dir.resolve() == output_dir.resolve():
         raise ValueError("source-dir and output-dir must be different.")
@@ -1726,6 +2693,8 @@ def build_pack(
         directory.mkdir(parents=True, exist_ok=True)
 
     image_paths = source_images(source_dir)
+    if not allow_source_reuse:
+        require_source_images_for_entries(source_dir, image_paths, len(entries))
     font_path = find_default_font()
     used_names: set[str] = set()
     manifest_items: list[dict] = []
@@ -1733,23 +2702,85 @@ def build_pack(
     qc_reports: list[dict] = []
 
     for index, entry in enumerate(entries, start=1):
-        image_path = image_paths[(index - 1) % len(image_paths)]
+        image_path = image_paths[(index - 1) % len(image_paths)] if allow_source_reuse else image_paths[index - 1]
         motion_profile = motion_profile_for_motion(entry.motion)
+        motion_template = motion_template_for_entry(entry)
         alignment_mode = alignment_mode_for_profile(motion_profile)
-        qc_report = qc_sheet(image_path, source_layout, quality_mode, strict=strict_qc, motion_profile=motion_profile)
-        raw_frames, animation_source, detected_layout = load_source_frames(image_path, source_layout)
+        caption_reserved_height = caption_reserved_height_for_text(entry.text, font_path)
+        read_layout = keypose_layout if source_mode == "keyposes" and source_layout == "auto" else source_layout
+        if source_mode == "single_bounce":
+            read_layout = "single"
+        qc_report = qc_sheet(
+            image_path,
+            read_layout,
+            quality_mode,
+            strict=strict_qc,
+            motion_profile=motion_profile,
+            source_mode=source_mode,
+        )
+        raw_frames, animation_source, detected_layout = load_source_frames(image_path, read_layout)
         raw = raw_frames[0]
         cached_sources.append(raw)
         preview_only = False
         normalization_meta: dict[str, object] = {"scale_normalized": False}
+        continuity_report: dict[str, object] = {
+            "status": "pass",
+            "warnings": [],
+            "errors": [],
+            "metrics": {},
+            "loop_closure_score": 0.0,
+            "motion_energy_score": 0.0,
+        }
         if qc_report["status"] == "fail" and strict_qc:
             errors = "; ".join(qc_report["errors"])
             raise ValueError(f"{image_path.name} failed QC: {errors}")
         if qc_report["status"] == "warning" and strict_qc and not allow_qc_warnings:
             warnings = "; ".join(qc_report["warnings"])
             raise ValueError(f"{image_path.name} has QC warnings: {warnings}")
-        if len(raw_frames) > 1:
-            normalized_frames, normalization_meta = normalize_motion_frames(raw_frames, alignment_mode=alignment_mode)
+        if source_mode == "keyposes":
+            normalized_frames, normalization_meta = render_keypose_motion(
+                raw_frames,
+                motion_template=motion_template,
+                frame_count=render_frame_count,
+                motion_profile=motion_profile,
+                caption_reserved_height=caption_reserved_height,
+            )
+            animation_source = "keyposes"
+            continuity_report = continuity_qc(
+                normalized_frames,
+                quality_mode,
+                motion_profile,
+                motion_template,
+                strict=strict_continuity_qc,
+                caption_reserved_height=caption_reserved_height,
+            )
+            if continuity_report["status"] == "fail" and strict_continuity_qc:
+                errors = "; ".join(str(error) for error in continuity_report["errors"])
+                raise ValueError(f"{image_path.name} failed continuity QC: {errors}")
+            if continuity_report["status"] == "warning" and strict_continuity_qc and not allow_qc_warnings:
+                warnings = "; ".join(str(warning) for warning in continuity_report["warnings"])
+                raise ValueError(f"{image_path.name} has continuity warnings: {warnings}")
+            frames = caption_source_frames(normalized_frames, entry.text, font_path)
+        elif source_mode == "motion_sheet" and len(raw_frames) > 1:
+            normalized_frames, normalization_meta = normalize_motion_frames(
+                raw_frames,
+                caption_reserved_height=caption_reserved_height,
+                alignment_mode=alignment_mode,
+            )
+            continuity_report = continuity_qc(
+                normalized_frames,
+                quality_mode,
+                motion_profile,
+                motion_template,
+                strict=strict_continuity_qc,
+                caption_reserved_height=caption_reserved_height,
+            )
+            if continuity_report["status"] == "fail" and strict_continuity_qc:
+                errors = "; ".join(str(error) for error in continuity_report["errors"])
+                raise ValueError(f"{image_path.name} failed continuity QC: {errors}")
+            if continuity_report["status"] == "warning" and strict_continuity_qc and not allow_qc_warnings:
+                warnings = "; ".join(str(warning) for warning in continuity_report["warnings"])
+                raise ValueError(f"{image_path.name} has continuity warnings: {warnings}")
             frames = caption_source_frames(normalized_frames, entry.text, font_path)
         else:
             preview_only = True
@@ -1781,8 +2812,19 @@ def build_pack(
             "bbox_drift": qc_report["bbox_drift"],
             "scale_normalized": bool(normalization_meta.get("scale_normalized", False)),
             "preview_only": preview_only,
+            "continuity_qc_status": continuity_report["status"],
+            "continuity_warnings": continuity_report["warnings"],
+            "continuity_errors": continuity_report["errors"],
+            "continuity_metrics": continuity_report["metrics"],
+            "loop_closure_score": continuity_report["loop_closure_score"],
+            "motion_energy_score": continuity_report["motion_energy_score"],
+            "prop_lifecycle_errors": continuity_report["metrics"].get("prop_lifecycle_errors", []),
+            "prop_position_jump": continuity_report["metrics"].get("prop_position_jump", 0.0),
+            "prop_area_jump": continuity_report["metrics"].get("prop_area_jump", 0.0),
+            "face_shape_drift_score": continuity_report["metrics"].get("face_shape_drift_score", 0.0),
+            "max_head_center_step_px": continuity_report["metrics"].get("max_head_center_step_px", 0.0),
         }
-        qc_reports.append({**qc_report, "index": index, "name": entry.name})
+        qc_reports.append({**qc_report, "continuity": continuity_report, "index": index, "name": entry.name})
         manifest_items.append(
             {
                 "index": index,
@@ -1792,11 +2834,15 @@ def build_pack(
                 "scene": entry.scene,
                 "motion": entry.motion,
                 "motion_profile": motion_profile,
+                "source_mode": source_mode,
+                "motion_template": motion_template,
                 "alignment_mode": alignment_mode,
                 "source": str(image_path),
                 "animation_source": animation_source,
                 "source_layout": detected_layout,
                 "source_frame_count": len(raw_frames),
+                "rendered_frame_count": len(frames),
+                "caption_reserved_height": caption_reserved_height,
                 "wechat_gif": relative_to_output(numbered_gif, output_dir),
                 "named_gif": relative_to_output(named_gif, output_dir),
                 "thumbnail": relative_to_output(thumb_path, output_dir),
@@ -1827,7 +2873,11 @@ def build_pack(
         "persona": persona,
         "author": author,
         "quality_mode": quality_mode,
+        "source_mode": source_mode,
+        "keypose_layout": keypose_layout,
+        "render_frame_count": render_frame_count,
         "strict_qc": strict_qc,
+        "strict_continuity_qc": strict_continuity_qc,
         "allow_qc_warnings": allow_qc_warnings,
         "wechat": {key: {"size": list(value["size"]), "max_bytes": value["max_bytes"], "format": value["format"]} for key, value in WECHAT_SPEC.items()},
         "assets": {
@@ -1844,7 +2894,12 @@ def build_pack(
                 "pack_name": pack_name,
                 "quality_mode": quality_mode,
                 "strict_qc": strict_qc,
-                "status": "fail" if any(report["status"] == "fail" for report in qc_reports) else "pass",
+                "status": "fail"
+                if any(
+                    report["status"] == "fail" or report.get("continuity", {}).get("status") == "fail"
+                    for report in qc_reports
+                )
+                else "pass",
                 "items": qc_reports,
             },
             ensure_ascii=False,
@@ -1862,10 +2917,14 @@ def build_pack(
                 "text",
                 "scene",
                 "motion_profile",
+                "source_mode",
+                "motion_template",
                 "alignment_mode",
                 "animation_source",
                 "source_layout",
                 "source_frame_count",
+                "rendered_frame_count",
+                "caption_reserved_height",
                 "wechat_gif",
                 "named_gif",
                 "thumbnail",
@@ -1881,14 +2940,185 @@ def build_pack(
                 "bbox_drift",
                 "scale_normalized",
                 "preview_only",
+                "continuity_qc_status",
+                "continuity_warnings",
+                "continuity_errors",
+                "continuity_metrics",
+                "loop_closure_score",
+                "motion_energy_score",
+                "prop_lifecycle_errors",
+                "prop_position_jump",
+                "prop_area_jump",
+                "face_shape_drift_score",
+                "max_head_center_step_px",
             ],
         )
         writer.writeheader()
         for item in manifest_items:
             row = {field: item[field] for field in writer.fieldnames}
-            for key in ("qc_warnings", "qc_errors", "bbox_drift"):
+            for key in (
+                "qc_warnings",
+                "qc_errors",
+                "bbox_drift",
+                "continuity_warnings",
+                "continuity_errors",
+                "continuity_metrics",
+                "prop_lifecycle_errors",
+            ):
                 row[key] = json.dumps(row[key], ensure_ascii=False)
             writer.writerow(row)
+    return manifest
+
+
+def write_preview_html(output_dir: Path, manifest: dict) -> Path:
+    rows: list[str] = []
+    for item in manifest.get("items", []):
+        gif_src = html_lib.escape(str(item["named_gif"]), quote=True)
+        name = html_lib.escape(str(item["name"]))
+        text = html_lib.escape(str(item["text"]).replace("\n", " / "))
+        scene = html_lib.escape(str(item.get("scene", "")))
+        status = html_lib.escape(str(item.get("continuity_qc_status", item.get("qc_status", ""))))
+        rows.append(
+            "      <figure>\n"
+            f"        <img src=\"{gif_src}\" alt=\"{name}\" width=\"240\" height=\"240\" />\n"
+            f"        <figcaption><strong>{name}</strong><span>{text}</span><small>{scene} · QC {status}</small></figcaption>\n"
+            "      </figure>"
+        )
+    pack_name = html_lib.escape(str(manifest.get("pack_name", "Meme Preview")))
+    persona = html_lib.escape(str(manifest.get("persona", "")))
+    style = html_lib.escape(str(manifest.get("style", "")))
+    quality_mode = html_lib.escape(str(manifest.get("quality_mode", "")))
+    html = f"""<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{pack_name} Preview</title>
+    <style>
+      :root {{
+        color-scheme: light;
+        --ink: #202124;
+        --muted: #5f6368;
+        --line: #dadce0;
+        --bg: #f8fafd;
+      }}
+      body {{
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", sans-serif;
+        color: var(--ink);
+        background: var(--bg);
+      }}
+      main {{
+        max-width: 940px;
+        margin: 0 auto;
+        padding: 28px 18px 40px;
+      }}
+      h1 {{
+        margin: 0 0 8px;
+        font-size: 28px;
+        line-height: 1.25;
+      }}
+      .meta {{
+        color: var(--muted);
+        margin: 0 0 24px;
+      }}
+      .grid {{
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+        gap: 18px;
+        align-items: start;
+      }}
+      figure {{
+        margin: 0;
+        background: #fff;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 12px;
+      }}
+      img {{
+        display: block;
+        width: 240px;
+        height: 240px;
+        margin: 0 auto;
+        background: #2f3437;
+      }}
+      figcaption {{
+        display: grid;
+        gap: 4px;
+        margin-top: 10px;
+        text-align: center;
+      }}
+      figcaption span,
+      figcaption small {{
+        color: var(--muted);
+      }}
+      figcaption small {{
+        font-size: 12px;
+      }}
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>{pack_name}</h1>
+      <p class="meta">Preview build · {len(manifest.get("items", []))} GIFs · {persona} · {style} · {quality_mode}</p>
+      <section class="grid">
+{chr(10).join(rows)}
+      </section>
+    </main>
+  </body>
+</html>
+"""
+    path = output_dir / "preview.html"
+    path.write_text(html, encoding="utf-8")
+    return path
+
+
+def build_preview(
+    source_dir: Path,
+    output_dir: Path,
+    entries: list[MemeEntry],
+    mode: str = "preview",
+    pack_name: str = "Agent Meme Preview",
+    style: str = "clean-sticker",
+    persona: str = "科研打工人",
+    author: str = "Agent Meme Forge",
+    source_layout: str = "auto",
+    source_mode: str = DEFAULT_SOURCE_MODE,
+    keypose_layout: str = DEFAULT_KEYPOSE_LAYOUT,
+    render_frame_count: int = DEFAULT_RENDER_FRAME_COUNT,
+    quality_mode: str = "submission",
+    strict_qc: bool = True,
+    allow_qc_warnings: bool = False,
+    strict_continuity_qc: bool = True,
+    preview_count: int = 3,
+) -> dict:
+    if preview_count <= 0:
+        raise ValueError("preview_count must be positive.")
+    if len(entries) < preview_count:
+        raise ValueError(f"preview_count {preview_count} exceeds entry count {len(entries)}.")
+    image_paths = source_images(source_dir)
+    if len(image_paths) < preview_count:
+        raise ValueError(f"preview_count {preview_count} requires {preview_count} source images; found {len(image_paths)}.")
+    manifest = build_pack(
+        source_dir=source_dir,
+        output_dir=output_dir,
+        entries=entries[:preview_count],
+        mode=mode,
+        pack_name=pack_name,
+        style=style,
+        persona=persona,
+        author=author,
+        source_layout=source_layout,
+        source_mode=source_mode,
+        keypose_layout=keypose_layout,
+        render_frame_count=render_frame_count,
+        quality_mode=quality_mode,
+        strict_qc=strict_qc,
+        allow_qc_warnings=allow_qc_warnings,
+        strict_continuity_qc=strict_continuity_qc,
+        allow_source_reuse=False,
+    )
+    write_preview_html(output_dir, manifest)
     return manifest
 
 
@@ -1978,7 +3208,7 @@ def cmd_list_options() -> None:
                 "animation_layouts": sorted(SHEET_LAYOUTS),
                 "source_layouts": ["auto", "single", *sorted(SHEET_LAYOUTS)],
                 "quality_modes": sorted(QUALITY_MODES),
-                "handoff_commands": ["plan-pack", "accept-generated", "qc-sheet", "build-pack"],
+                "handoff_commands": ["plan-pack", "accept-generated", "qc-sheet", "build-preview", "build-pack"],
                 "wechat_pack_sizes": [16, 24],
                 "self_use_pack_sizes": [18],
             },
@@ -2087,22 +3317,16 @@ def run_plan_wizard(input_fn=input, print_fn=print) -> dict:
         input_fn=input_fn,
         print_fn=print_fn,
     )
-    if quality_mode == "submission":
-        animation_layout = _prompt_choice(
-            "Step 7: choose animation layout",
-            ["2x4", "4x4"],
-            default_index=0,
-            input_fn=input_fn,
-            print_fn=print_fn,
-        )
-    else:
-        animation_layout = _prompt_choice(
-            "Step 7: choose animation layout",
-            [DEFAULT_ANIMATION_LAYOUT, "1x4", "1x8", "4x4", "2x2", "2x3"],
-            default_index=0,
-            input_fn=input_fn,
-            print_fn=print_fn,
-        )
+    selected_layout = _prompt_choice(
+        "Step 7: choose source layout (2x2/1x4 keyposes, 2x4/4x4 legacy motion sheets)",
+        [DEFAULT_KEYPOSE_LAYOUT, "1x4", DEFAULT_ANIMATION_LAYOUT, "4x4", "1x8", "2x3"],
+        default_index=0,
+        input_fn=input_fn,
+        print_fn=print_fn,
+    )
+    source_mode = "keyposes" if selected_layout in KEYPOSE_LAYOUTS else "motion_sheet"
+    keypose_layout = selected_layout if source_mode == "keyposes" else DEFAULT_KEYPOSE_LAYOUT
+    animation_layout = DEFAULT_ANIMATION_LAYOUT if source_mode == "keyposes" else selected_layout
 
     pack_name = _prompt_text("Step 8: pack name", default="Agent Meme Pack", input_fn=input_fn)
     tone = _prompt_text("Step 9: humor tone", default="职场发疯但安全", input_fn=input_fn)
@@ -2118,10 +3342,12 @@ def run_plan_wizard(input_fn=input, print_fn=print) -> dict:
         pack_name=pack_name,
         animation_layout=animation_layout,
         quality_mode=quality_mode,
+        source_mode=source_mode,
+        keypose_layout=keypose_layout,
     )
     write_plan(output, plan)
     print_fn(f"Plan written: {output}")
-    print_fn("Next: 先生成前 3 张 image_gen motion sheets, 用 accept-generated 落盘命名，再 run qc-sheet；通过后继续剩余图片。")
+    print_fn("Next: 先生成前 3 张 image_gen keypose sheets, 用 accept-generated 落盘命名，再 run qc-sheet 和 continuity QC；通过后继续剩余图片。")
     print_fn(plan["image_handoff"]["accept_generated_command"])
     print_fn(plan["processor_command"])
     return plan
@@ -2150,6 +3376,9 @@ def main(argv: list[str] | None = None) -> int:
     plan_parser.add_argument("--tone", default="职场发疯但安全")
     plan_parser.add_argument("--pack-name", default="Agent Meme Pack")
     plan_parser.add_argument("--animation-layout", default=DEFAULT_ANIMATION_LAYOUT, choices=sorted(SHEET_LAYOUTS))
+    plan_parser.add_argument("--source-mode", default=DEFAULT_SOURCE_MODE, choices=sorted(SOURCE_MODES))
+    plan_parser.add_argument("--keypose-layout", default=DEFAULT_KEYPOSE_LAYOUT, choices=sorted(KEYPOSE_LAYOUTS))
+    plan_parser.add_argument("--render-frame-count", type=int, default=DEFAULT_RENDER_FRAME_COUNT)
     plan_parser.add_argument("--quality-mode", default="submission", choices=sorted(QUALITY_MODES))
     plan_parser.add_argument("--output", required=True, type=Path)
 
@@ -2166,6 +3395,7 @@ def main(argv: list[str] | None = None) -> int:
     qc_parser = sub.add_parser("qc-sheet", help="Inspect a raw motion sheet before building a WeChat pack.")
     qc_parser.add_argument("--input", required=True, type=Path)
     qc_parser.add_argument("--source-layout", default="auto")
+    qc_parser.add_argument("--source-mode", default="motion_sheet", choices=sorted(SOURCE_MODES))
     qc_parser.add_argument("--quality-mode", default="submission", choices=sorted(QUALITY_MODES))
     qc_parser.add_argument("--motion-profile", default="standard", choices=sorted(MOTION_PROFILES))
     qc_parser.add_argument("--output", type=Path)
@@ -2194,10 +3424,35 @@ def main(argv: list[str] | None = None) -> int:
         default="auto",
         help="How to read source images: auto, single, or an explicit sheet layout such as 1x4, 2x2, 2x3.",
     )
+    build_parser.add_argument("--source-mode", default=DEFAULT_SOURCE_MODE, choices=sorted(SOURCE_MODES))
+    build_parser.add_argument("--keypose-layout", default=DEFAULT_KEYPOSE_LAYOUT, choices=sorted(KEYPOSE_LAYOUTS))
+    build_parser.add_argument("--render-frame-count", type=int, default=DEFAULT_RENDER_FRAME_COUNT)
     build_parser.add_argument("--quality-mode", default="submission", choices=sorted(QUALITY_MODES))
     build_parser.add_argument("--strict-qc", dest="strict_qc", action="store_true", default=True)
     build_parser.add_argument("--no-strict-qc", dest="strict_qc", action="store_false")
+    build_parser.add_argument("--strict-continuity-qc", dest="strict_continuity_qc", action="store_true", default=True)
+    build_parser.add_argument("--no-strict-continuity-qc", dest="strict_continuity_qc", action="store_false")
     build_parser.add_argument("--allow-qc-warnings", action="store_true")
+
+    preview_parser = sub.add_parser("build-preview", help="Build an explicit small preview from the first generated raw sheets.")
+    preview_parser.add_argument("--source-dir", required=True, type=Path)
+    preview_parser.add_argument("--output-dir", required=True, type=Path)
+    preview_parser.add_argument("--entries", type=Path)
+    preview_parser.add_argument("--pack-name", default="Agent Meme Preview")
+    preview_parser.add_argument("--style", default="clean-sticker")
+    preview_parser.add_argument("--persona", default="科研打工人")
+    preview_parser.add_argument("--author", default="Agent Meme Forge")
+    preview_parser.add_argument("--preview-count", type=int, default=3)
+    preview_parser.add_argument("--source-layout", default="auto")
+    preview_parser.add_argument("--source-mode", default=DEFAULT_SOURCE_MODE, choices=sorted(SOURCE_MODES))
+    preview_parser.add_argument("--keypose-layout", default=DEFAULT_KEYPOSE_LAYOUT, choices=sorted(KEYPOSE_LAYOUTS))
+    preview_parser.add_argument("--render-frame-count", type=int, default=DEFAULT_RENDER_FRAME_COUNT)
+    preview_parser.add_argument("--quality-mode", default="submission", choices=sorted(QUALITY_MODES))
+    preview_parser.add_argument("--strict-qc", dest="strict_qc", action="store_true", default=True)
+    preview_parser.add_argument("--no-strict-qc", dest="strict_qc", action="store_false")
+    preview_parser.add_argument("--strict-continuity-qc", dest="strict_continuity_qc", action="store_true", default=True)
+    preview_parser.add_argument("--no-strict-continuity-qc", dest="strict_continuity_qc", action="store_false")
+    preview_parser.add_argument("--allow-qc-warnings", action="store_true")
 
     args = parser.parse_args(argv)
     if args.command == "list-options":
@@ -2226,6 +3481,9 @@ def main(argv: list[str] | None = None) -> int:
                 pack_name=args.pack_name,
                 animation_layout=args.animation_layout,
                 quality_mode=args.quality_mode,
+                source_mode=args.source_mode,
+                keypose_layout=args.keypose_layout,
+                render_frame_count=args.render_frame_count,
             )
             write_plan(args.output, plan)
             return 0
@@ -2248,6 +3506,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.quality_mode,
                 strict=args.strict,
                 motion_profile=args.motion_profile,
+                source_mode=args.source_mode,
             )
             if args.output:
                 write_qc_report(args.output, report)
@@ -2281,9 +3540,50 @@ def main(argv: list[str] | None = None) -> int:
                 args.persona,
                 args.author,
                 args.source_layout,
+                args.source_mode,
+                args.keypose_layout,
+                args.render_frame_count,
                 args.quality_mode,
                 args.strict_qc,
                 args.allow_qc_warnings,
+                args.strict_continuity_qc,
+            )
+            return 0
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+    if args.command == "build-preview":
+        try:
+            entries = load_entries(args.entries) if args.entries else default_entries(args.persona, max(24, args.preview_count))
+            manifest = build_preview(
+                args.source_dir,
+                args.output_dir,
+                entries,
+                "preview",
+                args.pack_name,
+                args.style,
+                args.persona,
+                args.author,
+                args.source_layout,
+                args.source_mode,
+                args.keypose_layout,
+                args.render_frame_count,
+                args.quality_mode,
+                args.strict_qc,
+                args.allow_qc_warnings,
+                args.strict_continuity_qc,
+                args.preview_count,
+            )
+            print(
+                json.dumps(
+                    {
+                        "pack_size": manifest["pack_size"],
+                        "preview_html": str(args.output_dir / "preview.html"),
+                        "named_gifs": str(args.output_dir / "named-gifs"),
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
             )
             return 0
         except ValueError as exc:

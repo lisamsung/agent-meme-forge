@@ -17,9 +17,9 @@
 ## 功能
 
 - 从一张真人、头像、IP 形象、角色参考图，或纯文字角色概念生成风格化表情包。
-- 先生成角色卡、梗条目和逐条 `image_gen` 动作 sheet 提示词，再用本地脚本统一加中文、做 GIF 和微信打包。
-- 默认高质量路径是每个表情一张 `2x4` motion sheet，处理器按 8 个真实动作帧输出 GIF；需要更夸张姿势或更顺滑过渡时，可以用 `4x4` motion sheet 生成 16 帧高表现力 GIF。`submission` 模式会用 QC 拒绝单张静态图 fallback。
-- 内置 `qc-sheet`：检查假透明棋盘格、主体过小、边缘出格、bbox 漂移、背景模式和帧数，结果写入 `qc_report.json` 与 manifest。
+- 先生成角色卡、梗条目和逐条 `image_gen` keypose 提示词，再用本地脚本统一导演动作、加中文、做 GIF 和微信打包。
+- 默认高质量路径是每个表情一张 `2x2` keypose sheet：image_gen 只画 4 个关键姿势，本地处理器按动作模板渲染 16 帧，避免 16 格自由生图导致跳闪。`2x4` / `4x4` motion sheet 仍保留为 legacy/expert 模式。
+- 内置 `qc-sheet` 和连续性 QC：检查假透明棋盘格、主体过小、边缘出格、bbox 漂移、背景模式、相邻帧突变、面积突变、道具一帧闪现、循环首尾跳变和假动画，结果写入 `qc_report.json` 与 manifest。
 - 可选风格：`clean-sticker`、`pixel-art`、`chibi`、`retro-msn`、`office-cartoon`、`hand-drawn`。
 - 可选人设：`科研打工人`、`都市丽人`、`打工仔`、`码农`、`学生`、`研究僧`、`早八特困生`、`甲方幸存者`、`会议受害者`、`ddl祭司`。
 - 自动规划 24 个表情：12 个高频聊天通用梗、8 个垂直人设梗、4 个补位万能梗。
@@ -65,10 +65,10 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-wizard
 - 选择画面风格：清爽贴纸、像素风、Q 版、办公室漫画等。
 - 选择微信投稿包或自用包，以及 16/24/18 数量。
 - 选择质量模式：`submission`、`standard`、`preview`。
-- 选择动作 sheet：默认 `2x4`/8 帧；重点表情可以选 `4x4`/16 帧。
+- 选择源图模式：默认 `2x2` keypose / 本地 16 帧渲染；专家模式可以选 `2x4` 或 `4x4` motion sheet。
 - 写出计划 JSON，下一步用里面的 `image_prompts` 调用 `image_gen`。
 
-注意：`plan-wizard` 和 `plan-pack` 只会写计划和提示词，本地 Python 脚本不能自己调用 Codex 的生图工具。如果你是在 Codex agent 里要求“生成表情包”，agent 应该在计划生成后继续调用内置 `image_gen` 生成前 3 张 motion sheet；只有当前会话没有生图工具时，才把 prompts 交给你手动处理。
+注意：`plan-wizard` 和 `plan-pack` 只会写计划和提示词，本地 Python 脚本不能自己调用 Codex 的生图工具。如果你是在 Codex agent 里要求“生成表情包”，agent 应该先询问上述选择；只有你明确说“用默认值”或已经给出这些选择时，才直接进入计划和 `image_gen`。计划生成后，agent 应继续调用内置 `image_gen` 生成前 3 张 keypose sheet；只有当前会话没有生图工具时，才把 prompts 交给你手动处理。
 
 ### 2. 或者直接生成计划和 image_gen 提示词
 
@@ -84,12 +84,14 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
   --pack-size 24 \
   --mode wechat \
   --pack-name AI科研打工搭子 \
-  --animation-layout 2x4 \
+  --source-mode keyposes \
+  --keypose-layout 2x2 \
+  --render-frame-count 16 \
   --quality-mode submission \
   --output output/ai-research-plan.json
 ```
 
-如果你觉得动作不够夸张或有跳闪感，可以把重点表情改成 16 帧计划：
+如果你明确想走旧的完整 motion sheet 路线，可以手动切到 legacy/expert 模式：
 
 ```bash
 python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
@@ -98,6 +100,7 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
   --style clean-sticker \
   --pack-size 16 \
   --mode wechat \
+  --source-mode motion_sheet \
   --animation-layout 4x4 \
   --quality-mode submission \
   --output output/expressive-16f-plan.json
@@ -107,15 +110,15 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
 
 - `character_card`：角色设定卡。
 - `items`：24 个表情名、文案、关键词、发送场景。
-- `animation`：默认 `2x4`，每个表情 8 个动作帧；`4x4` 时每个表情 16 个动作帧。
-- `image_prompts`：24 条可直接交给 Codex `image_gen` 的无文字动作 sheet 提示词，每条都带 `visual_gag`、`qc_acceptance` 和 `regenerate_hint`。
+- `animation`：默认 `source_mode=keyposes`、`source_layout=2x2`、`rendered_frame_count=16`。
+- `image_prompts`：24 条可直接交给 Codex `image_gen` 的无文字 keypose 提示词，每条都带 `motion_template`、`local_effects`、`qc_policy`、`keypose_beats`、`timeline`、`continuity_acceptance`、`visual_gag`、`qc_acceptance` 和 `regenerate_hint`。
 - `meme_quality_bar` / `sendability_gate`：逐条检查“是不是真的有人想发”，弱梗先改再生图。
 - `raw_output_dir`：原图落盘目录。
 - `image_handoff`：把 `image_gen` 结果接进本地处理器的 `accept-generated` 命令模板，以及 `generated-index.json` 记录路径。
 
 ### 3. 调用 image_gen 生成无文字原图
 
-先把前 3 条 `image_prompts[].prompt` 交给 Codex 内置 `image_gen`，不要一口气做完 24 张。默认会要求生成一张 `2x4` 动作 sheet，例如 `raw-frames/01-收到离线-2x4.png ... 24-你说得对-2x4.png`。如果使用 `4x4`，文件名会变成 `01-收到离线-4x4.png`，每张 sheet 有 16 个连续动作格。
+先把前 3 条 `image_prompts[].prompt` 交给 Codex 内置 `image_gen`，不要一口气做完 24 张。默认会要求生成一张 `2x2` keypose sheet，例如 `raw-frames/01-收到离线-2x2.png ... 24-你说得对-2x2.png`。每张 sheet 只含 4 个关键姿势，最终 16 帧由本地处理器按动作模板渲染。
 
 每次 `image_gen` 产出后，先把生成图保存/导出为本地文件，再用 `accept-generated` 复制到计划里的标准文件名。这样后续 `qc-sheet` 和 `build-pack` 不会找错文件；同时 `generated-index.json` 会留下每张图的交接记录。
 
@@ -138,7 +141,7 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py accept-generated \
 
 注意棋盘格不等于透明背景，如果模型把棋盘格画进像素里，或者 motion sheet 出现可见分隔线，也要退回重生。质量不行就重生：角色太小、画了文字、像官方 logo、表情不够强、道具太细、看不出发送场景、网格数量不对、前后帧角色比例乱跳、道具出格、透明边缘有明显红/粉残留，都应该退回。
 
-如果为了快速试效果，先让 `image_gen` 生成一张 `4x6` 静态 contact sheet，可以切成 24 张单姿态原图。注意这只是预览路径，最终质量不如每个表情单独 `2x4` motion sheet：
+如果为了快速试效果，先让 `image_gen` 生成一张 `4x6` 静态 contact sheet，可以切成 24 张单姿态原图。注意这只是预览路径，最终质量不如每个表情单独 `2x2` keypose sheet：
 
 ```bash
 python skills/generate-meme-gif-pack/scripts/meme_pack.py split-sheet \
@@ -154,15 +157,39 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py split-sheet \
 
 ```bash
 python skills/generate-meme-gif-pack/scripts/meme_pack.py qc-sheet \
-  --input output/raw-frames/AI科研打工搭子/01-收到离线-2x4.png \
-  --source-layout 2x4 \
+  --input output/raw-frames/AI科研打工搭子/01-收到离线-2x2.png \
+  --source-mode keyposes \
+  --source-layout 2x2 \
   --quality-mode submission \
   --output output/qc/01-qc.json
 ```
 
-失败时不要硬凑，用计划里的 `regenerate_hint` 重生。常见失败原因：画了棋盘格或棋盘格残留、出现 sheet 分隔线、角色碰到格子边缘、某一帧突然变大、角色太小、背景不是透明或纯 `#FF00FF`。
+失败时不要硬凑，用计划里的 `regenerate_hint` 重生。常见失败原因：画了棋盘格或棋盘格残留、出现 sheet 分隔线、角色碰到格子边缘、关键姿势比例差太多、角色太小、背景不是透明或纯 `#FF00FF`。
 
-### 5. 构建微信 GIF 包
+### 5. 构建前三张预览
+
+前 3 张通过单张 `qc-sheet` 后，用显式预览命令生成小包和 `preview.html`。这个命令只会使用前 3 张源图，不会把 3 张图循环凑成 24 张：
+
+```bash
+python skills/generate-meme-gif-pack/scripts/meme_pack.py build-preview \
+  --source-dir output/raw-frames/AI科研打工搭子 \
+  --output-dir output/preview-first-3 \
+  --persona 科研打工人 \
+  --style clean-sticker \
+  --pack-name AI科研打工搭子前三张 \
+  --preview-count 3 \
+  --source-mode keyposes \
+  --keypose-layout 2x2 \
+  --source-layout auto \
+  --render-frame-count 16 \
+  --quality-mode submission \
+  --strict-qc \
+  --strict-continuity-qc
+```
+
+打开 `output/preview-first-3/preview.html`，重点看动作是否连贯、角色是否漂移、文案是否想发。通过后再继续生成剩余 21 张。
+
+### 6. 构建微信 GIF 包
 
 ```bash
 python skills/generate-meme-gif-pack/scripts/meme_pack.py build-pack \
@@ -173,10 +200,16 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py build-pack \
   --pack-size 24 \
   --mode wechat \
   --pack-name 我的表情包 \
-  --source-layout 2x4 \
+  --source-mode keyposes \
+  --keypose-layout 2x2 \
+  --source-layout auto \
+  --render-frame-count 16 \
   --quality-mode submission \
-  --strict-qc
+  --strict-qc \
+  --strict-continuity-qc
 ```
+
+完整投稿包不会自动复用源图。`--pack-size 24` 就必须有 24 张已接受的源图；如果目录里只有 3 张，请用上面的 `build-preview`。
 
 如果你只有单张静态姿态图，可以把 `--quality-mode` 改成 `preview`，并把 `--source-layout` 改成 `single`，处理器会退回轻微 bounce 动态；但这不是投稿质量。
 
@@ -204,7 +237,8 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
   --style pixel-art \
   --pack-size 16 \
   --mode wechat \
-  --animation-layout 2x4 \
+  --source-mode keyposes \
+  --keypose-layout 2x2 \
   --output output/coder-mascot-plan.json
 ```
 
@@ -221,11 +255,15 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
 ## 投稿前检查
 
 - `manifest.json` 里每个 item 的 `qc_status` 都应该是 `pass`。
+- `manifest.json` 里每个 item 的 `continuity_qc_status` 都应该是 `pass`。
 - `qc_report.json` 不应有 `errors`。
-- `animation_source` 应该是 `sheet`，不是 `single_bounce`。
-- `source_layout` 投稿默认应是 `2x4`，`source_frame_count` 应是 `8`；高表现力路线可以是 `4x4` / `16`。
-- `gif_frame_count` 应尽量等于 `source_frame_count`。如果 GIF 太大，处理器会降到 12/8/6/4 帧以满足微信大小限制，manifest 会记录最终帧数。
-- 默认帧时长：8 帧约 `170ms/帧`，16 帧约 `150ms/帧`。如果看起来仍然跳，优先重生更连贯的 motion sheet，而不是只继续放慢。
+- `source_mode` 应该是 `keyposes`，`animation_source` 应该是 `keyposes`，不是 `single_bounce`。
+- `source_layout` 投稿默认应是 `2x2`，`source_frame_count` 应是 `4`，`rendered_frame_count` 应是 `16`。
+- 高频模板会在本地补 `local_effects`：`收到离线` 的灵魂泡泡、`加载中` 的 loading 点、`先装懂` 的汗滴/尴尬线；这些不应该交给 image_gen 随机画。
+- `prop_lifecycle_errors` 应为空，`prop_position_jump` 和 `prop_area_jump` 不应超阈值；道具或特效不能只闪一帧，也不能跨区域瞬移。
+- `face_shape_drift_score` 和 `max_head_center_step_px` 不应超阈值；动作可以夸张，但脸型和头部不能随机变成另一个人。
+- `gif_frame_count` 应尽量等于 `rendered_frame_count`。如果 GIF 太大，处理器会降到 12/8/6/4 帧以满足微信大小限制，manifest 会记录最终帧数。
+- 默认帧时长：16 帧约 `150ms/帧`。如果看起来仍然跳，优先重生更稳定的 keypose sheet 或换动作模板，而不是只继续放慢。
 - `background_mode` 应是 `transparent` 或 `magenta`，且 `qc_warnings`/`qc_errors` 里不能有 `checkerboard residue` 或 `separator line residue`。
 - `edge_touch` 应是 `false`，`bbox_drift.size_ratio` 不应超阈值。
 - 打开 `named-gifs/` 抽查至少 3 张：动作能读、文字不挡脸、边缘没有粉色残留。
@@ -237,7 +275,7 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
 pytest -q
 ```
 
-当前测试覆盖：微信数量约束、默认梗库、motion-sheet prompt 计划生成、sheet 切帧、QC 门禁、假透明检测、边缘出格检测、bbox 漂移检测、中文文案排版、完整投稿包结构、skill 文档和 reference 文件完整性。
+当前测试覆盖：微信数量约束、默认梗库、keypose-first prompt 计划生成、motion template 渲染、本地特效层、连续性 QC、道具闪现/瞬移拦截、脸型漂移拦截、legacy motion-sheet 兼容、sheet 切帧、QC 门禁、假透明检测、边缘出格检测、bbox 漂移检测、中文文案排版、完整投稿包结构、skill 文档和 reference 文件完整性。
 
 ## 文档产物
 
