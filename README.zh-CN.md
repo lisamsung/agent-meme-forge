@@ -224,6 +224,7 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
 - `animation_source` 应该是 `sheet`，不是 `single_bounce`。
 - `source_layout` 投稿默认应是 `2x4`，`source_frame_count` 应是 `8`；高表现力路线可以是 `4x4` / `16`。
 - `gif_frame_count` 应尽量等于 `source_frame_count`。如果 GIF 太大，处理器会降到 12/8/6/4 帧以满足微信大小限制，manifest 会记录最终帧数。
+- 默认帧时长：8 帧约 `170ms/帧`，16 帧约 `150ms/帧`。如果看起来仍然跳，优先重生更连贯的 motion sheet，而不是只继续放慢。
 - `background_mode` 应是 `transparent` 或 `magenta`。
 - `edge_touch` 应是 `false`，`bbox_drift.size_ratio` 不应超阈值。
 - 打开 `named-gifs/` 抽查至少 3 张：动作能读、文字不挡脸、边缘没有粉色残留。

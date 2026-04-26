@@ -168,7 +168,7 @@ Hard negative rules: no text, no words, no Chinese characters, no Latin letters,
 ## Animation Guidance
 
 - Prefer semantic tiny loops: blink, nod, shake, sweat drop, typing escalation, document hit, paper pile squash, chart droop, progress bar wobble.
-- Quiet reaction loops should be slow enough to read. The processor defaults to slower 170ms frame timing for 8-frame GIFs; 16-frame sheets use shorter per-frame timing so the full loop is smoother rather than simply slower.
+- Quiet reaction loops should be slow enough to read. The processor defaults to 170ms frame timing for 8-frame GIFs and 150ms for 16-frame GIFs, so longer sheets smooth the motion without rushing the loop.
 - Quiet reactions use `motion_profile=micro` during QC/build. This rejects visible center drift and uses stable alignment so the character does not slide across the GIF.
 - Avoid large camera moves, complex backgrounds, or multi-character scenes.
 - Do not depend on tiny props for the joke; text and expression carry the meme.

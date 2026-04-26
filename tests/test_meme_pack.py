@@ -532,7 +532,7 @@ def test_build_pack_uses_16_frame_4x4_motion_sheet_when_under_limit(tmp_path: Pa
     assert first_item["source_layout"] == "4x4"
     assert first_item["source_frame_count"] == 16
     assert first_item["gif_frame_count"] == 16
-    assert 95 <= first_item["gif_duration_ms"] <= 120
+    assert 140 <= first_item["gif_duration_ms"] <= 160
     assert gif.n_frames == 16
 
 

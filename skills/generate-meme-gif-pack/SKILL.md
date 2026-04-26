@@ -52,6 +52,7 @@ If the user asks for 18 and wants WeChat upload, explain that WeChat albums use 
 - Motion sheets must use exact grid count, same character identity, same bounding box, same pixel scale, clear margins, no cell-edge crossing, and no text.
 - For subtle reactions such as blink, nod, loading, or blank stare, use `motion_profile=micro`: stable character anchor, no lateral drift, but medium-readable expression and small posture changes. A blink/nod should visibly change eyelids, pupils, glasses, shoulders, mouth, or head angle; it must not become a nearly static sticker.
 - For exaggerated reactions, use `4x4`/16-frame sheets when the model can keep identity stable. The extra frames should create anticipation, pose change, overshoot, recovery, and loop smoothing, not 16 duplicate poses.
+- Timing defaults: 8-frame GIFs use about 170ms per frame; 16-frame GIFs use about 150ms per frame so the full loop is readable rather than rushed.
 - Micro-motion QC is stricter than normal action QC. If center drift is visible, regenerate; do not treat drifting across the cell as intentional motion.
 - Prefer transparent PNG background directly from the image interface when supported. ChatGPT Images can be asked for transparent background; API model support varies, and `gpt-image-2` should use solid flat `#FF00FF` fallback plus local cleanup because it does not support true transparent background.
 - For API models that support transparent output, request an alpha-capable format such as PNG or WebP, for example with `background: "transparent"` and `output_format: "png"`.

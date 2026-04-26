@@ -1465,7 +1465,7 @@ def quantize_gif_frame_with_transparency(frame: Image.Image, colors: int) -> Ima
 
 def gif_duration_for_frame_count(frame_count: int) -> int:
     if frame_count >= 16:
-        return 105
+        return 150
     if frame_count >= 12:
         return 125
     if frame_count >= 8:
