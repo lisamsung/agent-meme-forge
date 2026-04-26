@@ -1,6 +1,6 @@
 # Prompt Rules
 
-The model should produce clean visual material only. Captions are added by the deterministic processor so Chinese text stays readable and consistent. The agent MUST actively call `image_gen` when the user asked for actual sticker generation; the local script plans prompts and postprocesses files, but it does not replace the image model. Do not stop after plan generation unless image tooling is unavailable.
+The model should produce clean visual material only. Captions are added by the deterministic processor so Chinese text stays readable and consistent. The agent MUST actively call `image_gen` when the user asked for actual sticker generation; the local script plans prompts and postprocesses files, but it does not replace the image model. Do not stop after plan generation unless image tooling is unavailable. The product rule is strict: if it is only cute or decorative and nobody would send it in chat, reject it.
 
 ## Character Card Prompt
 
@@ -28,10 +28,11 @@ Then run `meme_pack.py plan-pack` and use its `image_prompts` with built-in `ima
 1. concept -> character card
 2. persona -> sendable meme list
 3. meme item -> no-text motion sheet prompt
-4. `image_gen` -> one semantic sheet per sticker
-5. `accept-generated` -> copy the saved image_gen result to the planned `raw_image_filename` and update `generated-index.json`
-6. `qc-sheet --source-layout 2x4 --quality-mode submission` -> reject bad sheets before batch generation; use `4x4` for selected 16-frame expressive stickers
-7. `build-pack --source-layout 2x4 --quality-mode submission --strict-qc` -> Chinese captions, GIF loops, WeChat package; use `--source-layout 4x4` when the accepted raw sheets are 16-frame sheets
+4. sendability gate -> reuse trigger, emotional value, creative hook, visual gag
+5. `image_gen` -> one semantic sheet per sticker
+6. `accept-generated` -> copy the saved image_gen result to the planned `raw_image_filename` and update `generated-index.json`
+7. `qc-sheet --source-layout 2x4 --quality-mode submission` -> reject bad sheets before batch generation; use `4x4` for selected 16-frame expressive stickers
+8. `build-pack --source-layout 2x4 --quality-mode submission --strict-qc` -> Chinese captions, GIF loops, WeChat package; use `--source-layout 4x4` when the accepted raw sheets are 16-frame sheets
 
 ## Raw Image Prompt Pattern
 
@@ -39,10 +40,27 @@ Use this structure for each sticker:
 
 1. “Stylized sticker character based on the uploaded reference image...”
 2. State style, persona, expression, and action.
-3. State sheet behavior: default `2x4` motion sheet with 8 acting beats, or `4x4` with 16 beats when the meme needs stronger pose performance or smoother continuity.
-4. State sprite-forge-style sheet constraints: exact grid count, no borders, same identity, same bounding box, same pixel scale, no edge crossing, clear margin.
-5. State constraints: **no text**, no Chinese characters, no labels, no official logo, no brand mark, no speech bubbles, no UI, uncluttered background, full character visible, large readable face, centered composition.
-6. State WeChat readability: must read clearly at 240x240.
+3. State sendability gate: real chat trigger, emotional value, creative hook, and why the motion makes the caption funnier.
+4. State sheet behavior: default `2x4` motion sheet with 8 acting beats, or `4x4` with 16 beats when the meme needs stronger pose performance or smoother continuity.
+5. State sprite-forge-style sheet constraints: exact grid count, no borders, same identity, same bounding box, same pixel scale, no edge crossing, clear margin.
+6. State constraints: **no text**, no Chinese characters, no labels, no official logo, no brand mark, no speech bubbles, no UI, uncluttered background, full character visible, large readable face, centered composition.
+7. State WeChat readability: must read clearly at 240x240.
+
+## Sendability Gate
+
+Before calling `image_gen`, every sticker must pass:
+
+- reuse trigger: a real chat moment where someone would send it directly
+- emotional value: what relief, sarcasm, agreement, panic, delay, or comfort it gives
+- creative hook: the visual idea that makes it more than a caption pasted on a face
+- visual gag: a readable action or prop that still works at 240x240
+
+Reject or rewrite if:
+
+- it is only cute or decorative
+- it is just an abstract mood label
+- it depends on private context strangers cannot reuse
+- the pose is polished but does not make the caption funnier
 
 ## Motion Sheet Rules
 

@@ -10,6 +10,7 @@
 
 - 每个 GIF 都必须有明确发送场景。
 - 梗要短、能读、能复用。
+- 每个表情都要过 `sendability_gate`：复用触发场景、情绪价值、创意钩子、视觉笑点。只可爱、只漂亮、只像头像，都不算合格。
 - 图片模型不负责写中文，中文文案由本地脚本统一加字。
 - 默认产出 24 个动态 GIF，因为微信动态表情专辑通常要求 16 或 24 个。
 
@@ -108,6 +109,7 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
 - `items`：24 个表情名、文案、关键词、发送场景。
 - `animation`：默认 `2x4`，每个表情 8 个动作帧；`4x4` 时每个表情 16 个动作帧。
 - `image_prompts`：24 条可直接交给 Codex `image_gen` 的无文字动作 sheet 提示词，每条都带 `visual_gag`、`qc_acceptance` 和 `regenerate_hint`。
+- `meme_quality_bar` / `sendability_gate`：逐条检查“是不是真的有人想发”，弱梗先改再生图。
 - `raw_output_dir`：原图落盘目录。
 - `image_handoff`：把 `image_gen` 结果接进本地处理器的 `accept-generated` 命令模板，以及 `generated-index.json` 记录路径。
 

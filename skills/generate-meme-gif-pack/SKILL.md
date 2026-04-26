@@ -5,7 +5,7 @@ description: Use when the user wants to turn a reference person, mascot, avatar,
 
 # Generate Meme GIF Pack
 
-Create animated Chinese meme GIF packs from either a reference image or a text-only character concept. The core design rule is: a sticker nobody sends is waste. Prioritize repeatable chat-use cases, clear reaction value, and fast readability over decorative polish.
+Create animated Chinese meme GIF packs from either a reference image or a text-only character concept. The core design rule is: 没人用的表情包就是垃圾表情包. A sticker nobody sends is waste. Prioritize repeatable chat-use cases, clear reaction value, imagination, and fast readability over decorative polish.
 
 ## Inputs
 
@@ -41,6 +41,7 @@ If the user asks for 18 and wants WeChat upload, explain that WeChat albums use 
 - Keep humor safe for public WeChat review: no politics, hate, sexual content, slurs, doxxing, medical claims, or direct harassment.
 - Do not ask the image model to draw Chinese text. The visual prompt must say **no text**, no captions, no speech bubbles, no UI.
 - Write meme copy yourself. Every item needs a concrete sending scenario.
+- Treat `meme_quality_bar` and every `sendability_gate` as hard product gates. Each sticker needs a reuse trigger, emotional value, creative hook, and visual gag; if it is only cute or decorative, rewrite it before generation.
 - If the user has not provided choices, ask the intake questions explicitly: reference image or text concept, persona/scene, style, WeChat or self-use, count, and quality mode.
 - Use `scripts/meme_pack.py plan-pack` to write the meme entries, character card, and per-sticker `image_gen` prompts.
 - Use `scripts/meme_pack.py plan-wizard` when the user wants a command-line guided setup instead of agent chat intake.
@@ -92,6 +93,7 @@ For a reference image, add `--reference-image path/to/reference.png` and describ
    - `items`: meme names, captions, keywords, use scenes, motion hints.
    - `animation`: sheet layout and frame count, default `2x4` / 8 frames.
    - `image_prompts`: one motion-sheet prompt per sticker for `image_gen`.
+   - `meme_quality_bar` and each prompt's `sendability_gate`: the usefulness test for whether this sticker deserves to exist.
    - `requires_agent_tooling`: confirms `image_gen` is required for actual generation.
    - `image_handoff`: exact `accept-generated` command template and `generated-index.json` audit path.
 4. Plan 24 entries:
@@ -107,6 +109,7 @@ For a reference image, add `--reference-image path/to/reference.png` and describ
    - Ask for transparent PNG background first in ChatGPT Images or any API model that supports transparency. If using `gpt-image-2` or another model/tool that cannot output true alpha, use a solid flat `#FF00FF` background; the processor removes it locally.
    - After each generated image is available as a local file, run `accept-generated` so it lands at the planned raw filename.
    - Run `qc-sheet` on those first 3 accepted motion sheets. If a sheet fails, use its `regenerate_hint` from the plan and generate again.
+   - If the first 3 look technically correct but not worth sending, revise their captions, visual gags, or motion plans before continuing. Technical pass does not override the sendability gate.
    - Continue to the remaining 21 sheets only after the first 3 pass QC.
 
 ```bash
@@ -159,6 +162,7 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py build-pack \
    - Check the text is readable and not clipped.
    - Inspect `qc_report.json`: every item should be `pass` for submission.
    - Reject weak jokes. Replace any entry that is only decorative or has no obvious send scenario.
+   - Reject any GIF that is visually polished but not useful as a chat reply.
 
 ## Output
 

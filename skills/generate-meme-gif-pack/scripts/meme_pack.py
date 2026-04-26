@@ -509,6 +509,47 @@ def visual_gag_for_entry(entry: MemeEntry) -> str:
     return "the face and body language carry the joke clearly at 240x240 before the caption is added"
 
 
+MEME_QUALITY_BAR = {
+    "principle": "没人用的表情包就是垃圾表情包。A sticker nobody wants to send is waste.",
+    "pass_criteria": [
+        "answers a real chat situation without extra explanation",
+        "has a short reusable caption with emotional payoff",
+        "uses a visual gag or acting choice that makes the caption funnier",
+        "is safe for public WeChat review while still feeling alive",
+    ],
+    "reject_if": [
+        "only cute or decorative",
+        "generic mood with no send trigger",
+        "private joke that strangers cannot reuse",
+        "pretty pose that does not add humor, tension, or reaction value",
+    ],
+}
+
+
+def emotional_value_for_entry(entry: MemeEntry) -> str:
+    text = f"{entry.name} {entry.text} {entry.scene} {entry.motion}".lower()
+    if any(token in text for token in ["收到", "加载", "已读", "懂"]):
+        return "low-pressure reply that buys time without sounding cold"
+    if any(token in text for token in ["离谱", "合理", "问题", "崩", "翻车", "bug"]):
+        return "shared disbelief and comic relief when things go wrong"
+    if any(token in text for token in ["写", "ddl", "加班", "交", "进度", "返修"]):
+        return "deadline survival humor that says I am trying but suffering"
+    if any(token in text for token in ["咖啡", "早八", "睡", "灵魂", "退场"]):
+        return "energy-depleted self-mockery that is easy to send repeatedly"
+    return "quick emotional shorthand that makes the chat reply more playful"
+
+
+def sendability_gate_for_entry(entry: MemeEntry) -> dict[str, str]:
+    visual_gag = visual_gag_for_entry(entry)
+    return {
+        "reuse_trigger": entry.scene,
+        "emotional_value": emotional_value_for_entry(entry),
+        "creative_hook": visual_gag,
+        "pass_if": "someone could send this directly in a chat to answer the situation, and the motion makes the caption funnier",
+        "reject_if": "only cute or decorative, generic mood, private-context joke, or a pretty pose with no reusable chat purpose",
+    }
+
+
 def qc_acceptance_for_entry(layout: str) -> str:
     rows, cols = parse_sheet_layout(layout)
     return (
@@ -541,7 +582,8 @@ def regenerate_hint_for_entry(entry: MemeEntry, layout: str) -> str:
     return (
         f"Regenerate {entry.name} as a cleaner {layout} no-text motion sheet. "
         f"Keep the caption idea '{caption}' out of the image. Use a larger readable face, fewer props, "
-        "more margin inside every cell, identical character scale, and transparent PNG or pure #FF00FF only."
+        "more margin inside every cell, identical character scale, and transparent PNG or pure #FF00FF only. "
+        "If the result is only cute or decorative, redesign the acting so it answers the chat scene and makes the caption funnier."
     )
 
 
@@ -584,6 +626,7 @@ def image_prompt_for_entry(
     frame_lines = "\n".join(f"Frame {frame_index}: {description}" for frame_index, description in enumerate(frame_plan, start=1))
     motion_profile = motion_profile_for_motion(entry.motion)
     frame_count = len(frame_plan)
+    sendability_gate = sendability_gate_for_entry(entry)
     prompt = (
         "Create one raw no-text motion sheet for a Chinese WeChat animated meme GIF sticker pack.\n"
         f"Character card: {character_card}\n"
@@ -592,6 +635,9 @@ def image_prompt_for_entry(
         f"Persona context: {persona}; useful visual cues: {persona_prompt(persona)}.\n"
         f"Meme item {index:02d}: {entry.name}. Chat send scenario: {entry.scene}. "
         f"The final Chinese caption will be added later by a local processor as \"{caption}\"; do not draw any text.\n"
+        "Sendability gate: this must be a sticker people want to send, not just a nice illustration. "
+        f"Reuse trigger: {sendability_gate['reuse_trigger']}. Emotional value: {sendability_gate['emotional_value']}. "
+        f"Creative hook: {sendability_gate['creative_hook']}. If it is only cute or decorative, generic, or not useful as a chat reply, it fails.\n"
         f"Acting direction: exaggerated readable reaction, {entry.motion}; make the emotion understandable before the caption is added.\n"
         f"{sheet_prompt_rules(animation_layout)}\n"
         f"{motion_profile_prompt(motion_profile)}\n"
@@ -618,6 +664,7 @@ def image_prompt_for_entry(
         "8_frame_beats": frame_plan if frame_count == 8 else frame_plan[:8],
         f"{frame_count}_frame_beats": frame_plan,
         "visual_gag": visual_gag_for_entry(entry),
+        "sendability_gate": sendability_gate,
         "negative_prompt": HARD_IMAGE_RULES,
         "qc_acceptance": qc_acceptance_for_entry(animation_layout),
         "regenerate_hint": regenerate_hint_for_entry(entry, animation_layout),
@@ -710,6 +757,7 @@ def plan_pack(
             "quality_mode": quality_mode,
             "rules": sheet_prompt_rules(animation_layout),
         },
+        "meme_quality_bar": MEME_QUALITY_BAR,
         "items": [asdict(entry) for entry in entries],
         "image_prompts": prompts,
         "requires_agent_tooling": {
@@ -729,6 +777,7 @@ def plan_pack(
             f"Run meme_pack.py qc-sheet --source-layout {animation_layout} --quality-mode {quality_mode} on those first 3 accepted sheets and regenerate any fail or weak warning using regenerate_hint.",
             "After the first 3 sheets pass QC, call image_gen once per remaining image_prompt to generate one no-text motion sheet per sticker.",
             f"Save raw generated no-text images using raw_image_filename under {raw_output_dir}; accept-generated writes generated-index.json as the handoff audit trail.",
+            "Replace any weak joke before generation: every sticker must pass meme_quality_bar and image_prompts[].sendability_gate; if it is only cute or decorative, rewrite the caption, scene, visual gag, and motion.",
             "Reject and regenerate any raw sheet that contains text, speech bubbles, official logos, brand marks, wrong grid count, a tiny face, edge-crossing props, or a character that drifts from the character card.",
             f"After raw sheets are accepted, run meme_pack.py build-pack with --source-layout {animation_layout} --quality-mode {quality_mode} --strict-qc plus the same persona, style, pack_size, mode, and pack_name.",
         ],

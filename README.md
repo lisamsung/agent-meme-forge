@@ -5,6 +5,7 @@ A Codex skill and local processor for generating WeChat-ready animated Chinese m
 Core skill: `generate-meme-gif-pack`.
 
 The product rule is simple: if nobody would send the sticker in chat, it is not good enough.
+Every planned sticker now carries a sendability gate: reuse trigger, emotional value, creative hook, and reject criteria for anything that is only cute or decorative.
 
 ## What It Builds
 

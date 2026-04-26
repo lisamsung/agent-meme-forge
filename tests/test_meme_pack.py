@@ -167,12 +167,20 @@ def test_plan_pack_builds_direct_text_image_prompts():
     assert first_prompt_plan["motion_profile"] == "micro"
     assert len(first_prompt_plan["8_frame_beats"]) == 8
     assert first_prompt_plan["visual_gag"]
+    assert "meme_quality_bar" in plan
+    assert "没人用的表情包就是垃圾表情包" in plan["meme_quality_bar"]["principle"]
+    assert first_prompt_plan["sendability_gate"]["reuse_trigger"] == first_prompt_plan["send_scene"]
+    assert first_prompt_plan["sendability_gate"]["creative_hook"] == first_prompt_plan["visual_gag"]
+    assert "only cute or decorative" in first_prompt_plan["sendability_gate"]["reject_if"]
+    assert "Sendability gate" in first_prompt
+    assert "only cute or decorative" in first_prompt
     assert "no text" in first_prompt_plan["negative_prompt"]
     assert "checkerboard" in first_prompt_plan["qc_acceptance"]
     assert first_prompt_plan["regenerate_hint"]
     assert plan["quality_mode"] == "submission"
     assert "MUST call built-in image_gen" in plan["agent_instructions"][0]
     assert "Do not stop after writing the plan" in plan["agent_instructions"][0]
+    assert "Replace any weak joke" in " ".join(plan["agent_instructions"])
     assert plan["requires_agent_tooling"]["image_generation_tool"] == "image_gen"
     assert plan["raw_output_dir"] == "output/raw-frames/AgentMemePack"
     assert "accept-generated" in plan["image_handoff"]["accept_generated_command"]

@@ -1,6 +1,6 @@
 # Meme Library
 
-The default pack composition is 12 common chat reactions, 8 persona-specific reactions, and 4 reusable fillers. Replace weak items before generating; do not ship decorative stickers without a send scenario.
+The default pack composition is 12 common chat reactions, 8 persona-specific reactions, and 4 reusable fillers. Replace weak items before generating; do not ship decorative stickers without a send scenario. 没人用的表情包就是垃圾表情包: every item needs a reason to be sent.
 
 ## Common High-Frequency Reactions
 
@@ -24,6 +24,8 @@ The default pack composition is 12 common chat reactions, 8 persona-specific rea
 - The joke must survive outside the creator’s private context.
 - Use verbs and situations, not abstract mood labels.
 - Avoid rare slang that will age quickly unless the user explicitly wants a trend pack.
+- Pair every caption with a creative visual hook; a pretty face is not enough.
+- If the joke works only because the character is cute, rewrite it.
 
 ## Quality Bar
 

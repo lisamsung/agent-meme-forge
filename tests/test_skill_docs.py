@@ -31,6 +31,8 @@ def test_skill_frontmatter_and_hard_rules_are_present():
     assert "--strict-qc" in text
     assert "MUST call" in text
     assert "do not stop after" in text
+    assert "没人用的表情包就是垃圾表情包" in text
+    assert "sendability gate" in text.lower()
 
 
 def test_references_cover_wechat_prompt_persona_and_humor():
@@ -73,6 +75,7 @@ def test_prompt_rules_support_direct_text_generation():
     assert "QC" in text or "qc" in text
     assert "edge" in text
     assert "accept-generated" in text
+    assert "only cute" in text
 
 
 def test_pages_readme_link_stays_inside_project_or_github():
