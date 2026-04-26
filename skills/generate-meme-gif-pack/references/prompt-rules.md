@@ -30,8 +30,8 @@ Then run `meme_pack.py plan-pack` and use its `image_prompts` with built-in `ima
 3. meme item -> no-text motion sheet prompt
 4. `image_gen` -> one semantic sheet per sticker
 5. `accept-generated` -> copy the saved image_gen result to the planned `raw_image_filename` and update `generated-index.json`
-6. `qc-sheet --source-layout 2x4 --quality-mode submission` -> reject bad sheets before batch generation
-7. `build-pack --source-layout 2x4 --quality-mode submission --strict-qc` -> Chinese captions, GIF loops, WeChat package
+6. `qc-sheet --source-layout 2x4 --quality-mode submission` -> reject bad sheets before batch generation; use `4x4` for selected 16-frame expressive stickers
+7. `build-pack --source-layout 2x4 --quality-mode submission --strict-qc` -> Chinese captions, GIF loops, WeChat package; use `--source-layout 4x4` when the accepted raw sheets are 16-frame sheets
 
 ## Raw Image Prompt Pattern
 
@@ -39,7 +39,7 @@ Use this structure for each sticker:
 
 1. “Stylized sticker character based on the uploaded reference image...”
 2. State style, persona, expression, and action.
-3. State sheet behavior: default `2x4` motion sheet with 8 acting beats for smoother GIFs.
+3. State sheet behavior: default `2x4` motion sheet with 8 acting beats, or `4x4` with 16 beats when the meme needs stronger pose performance or smoother continuity.
 4. State sprite-forge-style sheet constraints: exact grid count, no borders, same identity, same bounding box, same pixel scale, no edge crossing, clear margin.
 5. State constraints: **no text**, no Chinese characters, no labels, no official logo, no brand mark, no speech bubbles, no UI, uncluttered background, full character visible, large readable face, centered composition.
 6. State WeChat readability: must read clearly at 240x240.
@@ -49,14 +49,17 @@ Use this structure for each sticker:
 The high-quality path uses semantic motion sheets, adapted from `generate2dsprite`:
 
 - default sheet: `2x4`, exactly 8 equal cells in two rows and four columns
+- expressive sheet: `4x4`, exactly 16 equal cells for stickers that need bigger pose change, anticipation, overshoot, recovery, and smoother in-betweens
 - lighter sheet: `1x4` for compact previews or stricter file-size budgets
 - alternate 8-frame sheet: `1x8` when the model handles a wide strip better
 - richer alternate sheets: `2x2`, `2x3`, `3x3`, or `4x4` when the user needs a special animation structure
 - no borders, no separator lines, no numbered cells
 - same character identity, same outfit cues, same color anchors, same bounding box, and same pixel scale across frames
 - make neighboring frames feel like in-between animation from one drawing, not separate illustrations
-- for blink, nod, blank stare, loading, or other quiet reactions, use medium-readable micro-motion: clear eyelid changes, pupil movement, glasses shift, eyebrow change, or a 6 to 10 pixel head nod
+- for blink, nod, blank stare, loading, or other quiet reactions, use medium-readable micro-motion: clear eyelid changes, pupil movement, glasses shift, eyebrow change, shoulder sink, mouth change, or an 8 to 14 pixel head nod
 - micro-motion means stable character anchor, not tiny invisible motion; no lateral drift across the cell
+- for action reactions, allow visible pose and silhouette changes that match the caption: arms, shoulders, props, squash/stretch, anticipation, overshoot, and recovery
+- for 16-frame sheets, every odd/even neighbor should act like an in-between pair; avoid making 16 unrelated drawings or 16 near-identical copies
 - no camera cuts, no sudden crop changes, no random new props, and no teleporting hands
 - the entire character, prop, effect, sweat drop, paper stack, chart, laptop, or glow must fit fully inside each cell
 - leave clear margin on all four sides; nothing may cross a cell edge
@@ -71,7 +74,7 @@ The high-quality path uses semantic motion sheets, adapted from `generate2dsprit
 
 The processor now treats QC as a gate, not a suggestion. A raw sheet should pass these checks before it is allowed into a WeChat submission pack:
 
-- exact declared layout, especially `2x4` for `submission`
+- exact declared layout, especially `2x4` or `4x4` for `submission`
 - every cell has a readable subject
 - no visible checkerboard background
 - true alpha background, or a clean solid `#FF00FF` chroma key fallback
@@ -147,13 +150,13 @@ Hard negative rules: no text, no words, no Chinese characters, no Latin letters,
 ## Animation Guidance
 
 - Prefer semantic tiny loops: blink, nod, shake, sweat drop, typing escalation, document hit, paper pile squash, chart droop, progress bar wobble.
-- Quiet reaction loops should be slow enough to read. The processor defaults to slower 170ms frame timing for 8-frame GIFs and preserves transparent GIF output.
+- Quiet reaction loops should be slow enough to read. The processor defaults to slower 170ms frame timing for 8-frame GIFs; 16-frame sheets use shorter per-frame timing so the full loop is smoother rather than simply slower.
 - Quiet reactions use `motion_profile=micro` during QC/build. This rejects visible center drift and uses stable alignment so the character does not slide across the GIF.
 - Avoid large camera moves, complex backgrounds, or multi-character scenes.
 - Do not depend on tiny props for the joke; text and expression carry the meme.
 - If identity drifts between frames, regenerate with stricter same bounding box / same pixel scale rules.
 - If speed matters, ask `image_gen` for an exact `4 columns by 6 rows` contact sheet of static poses, then run `meme_pack.py split-sheet --rows 6 --cols 4`. Keep generous whitespace so each crop contains one centered pose. This is a preview path, not the best final-quality path.
-- `build-pack` reads motion sheets with `--source-layout 2x4`, `1x8`, `1x4`, `2x2`, or `2x3`; single static sources fall back to a simple bounce loop only in `preview` mode.
+- `build-pack` reads motion sheets with `--source-layout 2x4`, `4x4`, `1x8`, `1x4`, `2x2`, or `2x3`; single static sources fall back to a simple bounce loop only in `preview` mode.
 - WeChat submission should use `build-pack --quality-mode submission --strict-qc`; this rejects `single_bounce`, fake checkerboard backgrounds, edge touch, excessive bbox drift, and weak frame sheets.
 
 ## Rejection Rules

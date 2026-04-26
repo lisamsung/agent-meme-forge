@@ -11,18 +11,19 @@ This skill targets WeChat Sticker Open Platform album uploads, not ordinary publ
 - Album icon PNG: one `50x50`, transparent background, below `30KB`.
 - Cover PNG: one `240x240`, transparent background, below `80KB`.
 - Detail banner PNG: one `750x400`, below `80KB`, no text.
-- Submission quality mode: `--quality-mode submission --strict-qc`, defaulting to real `2x4` eight-frame motion sheets.
+- Submission quality mode: `--quality-mode submission --strict-qc`, defaulting to real `2x4` eight-frame motion sheets. Use `4x4` sixteen-frame sheets for selected high-performance stickers when continuity or pose acting matters and the final GIF still stays below the size limit.
 
 ## Practical Constraints
 
 - Use readable silhouettes. A 240px GIF hides subtle facial acting.
+- Use 16-frame `4x4` sheets selectively. They can smooth motion and support larger pose arcs, but they cost more image-generation effort and GIF bytes.
 - Keep text short. Two lines is ideal; three lines is risky.
 - Avoid white or transparent-only banners; the detail page needs a bright, story-like image.
 - Keep a consistent character style across all GIFs.
 - Do not mix static and dynamic stickers in one WeChat album.
 - Do not use `single_bounce` for final submission. It is preview-only because the movement is too generic.
 - Reject fake checkerboard transparency. The background must be true alpha or a clean `#FF00FF` fallback that the processor can remove.
-- Reject sheets where the subject touches a cell edge, jumps scale between frames, or leaves the caption zone unclear.
+- Reject sheets where the subject touches a cell edge, jumps scale between frames, or leaves the caption zone unclear. Bigger pose changes are allowed only when the identity, scale, and cell containment remain stable.
 - Keep the official numbered upload files even when also exporting human-readable Chinese names.
 
 ## Output Mapping

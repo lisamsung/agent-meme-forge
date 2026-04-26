@@ -17,7 +17,7 @@
 
 - 从一张真人、头像、IP 形象、角色参考图，或纯文字角色概念生成风格化表情包。
 - 先生成角色卡、梗条目和逐条 `image_gen` 动作 sheet 提示词，再用本地脚本统一加中文、做 GIF 和微信打包。
-- 默认高质量路径是每个表情一张 `2x4` motion sheet，处理器按 8 个真实动作帧输出更丝滑的 GIF；`submission` 模式会用 QC 拒绝单张静态图 fallback。
+- 默认高质量路径是每个表情一张 `2x4` motion sheet，处理器按 8 个真实动作帧输出 GIF；需要更夸张姿势或更顺滑过渡时，可以用 `4x4` motion sheet 生成 16 帧高表现力 GIF。`submission` 模式会用 QC 拒绝单张静态图 fallback。
 - 内置 `qc-sheet`：检查假透明棋盘格、主体过小、边缘出格、bbox 漂移、背景模式和帧数，结果写入 `qc_report.json` 与 manifest。
 - 可选风格：`clean-sticker`、`pixel-art`、`chibi`、`retro-msn`、`office-cartoon`、`hand-drawn`。
 - 可选人设：`科研打工人`、`都市丽人`、`打工仔`、`码农`、`学生`、`研究僧`、`早八特困生`、`甲方幸存者`、`会议受害者`、`ddl祭司`。
@@ -64,6 +64,7 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-wizard
 - 选择画面风格：清爽贴纸、像素风、Q 版、办公室漫画等。
 - 选择微信投稿包或自用包，以及 16/24/18 数量。
 - 选择质量模式：`submission`、`standard`、`preview`。
+- 选择动作 sheet：默认 `2x4`/8 帧；重点表情可以选 `4x4`/16 帧。
 - 写出计划 JSON，下一步用里面的 `image_prompts` 调用 `image_gen`。
 
 注意：`plan-wizard` 和 `plan-pack` 只会写计划和提示词，本地 Python 脚本不能自己调用 Codex 的生图工具。如果你是在 Codex agent 里要求“生成表情包”，agent 应该在计划生成后继续调用内置 `image_gen` 生成前 3 张 motion sheet；只有当前会话没有生图工具时，才把 prompts 交给你手动处理。
@@ -87,18 +88,32 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
   --output output/ai-research-plan.json
 ```
 
+如果你觉得动作不够夸张或有跳闪感，可以把重点表情改成 16 帧计划：
+
+```bash
+python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
+  --subject "stylized avatar with glasses and expressive office meltdown acting" \
+  --persona 都市丽人 \
+  --style clean-sticker \
+  --pack-size 16 \
+  --mode wechat \
+  --animation-layout 4x4 \
+  --quality-mode submission \
+  --output output/expressive-16f-plan.json
+```
+
 打开 `output/ai-research-plan.json`，里面会有：
 
 - `character_card`：角色设定卡。
 - `items`：24 个表情名、文案、关键词、发送场景。
-- `animation`：默认 `2x4`，每个表情 8 个动作帧。
+- `animation`：默认 `2x4`，每个表情 8 个动作帧；`4x4` 时每个表情 16 个动作帧。
 - `image_prompts`：24 条可直接交给 Codex `image_gen` 的无文字动作 sheet 提示词，每条都带 `visual_gag`、`qc_acceptance` 和 `regenerate_hint`。
 - `raw_output_dir`：原图落盘目录。
 - `image_handoff`：把 `image_gen` 结果接进本地处理器的 `accept-generated` 命令模板，以及 `generated-index.json` 记录路径。
 
 ### 3. 调用 image_gen 生成无文字原图
 
-先把前 3 条 `image_prompts[].prompt` 交给 Codex 内置 `image_gen`，不要一口气做完 24 张。默认会要求生成一张 `2x4` 动作 sheet，例如 `raw-frames/01-收到离线-2x4.png ... 24-你说得对-2x4.png`。
+先把前 3 条 `image_prompts[].prompt` 交给 Codex 内置 `image_gen`，不要一口气做完 24 张。默认会要求生成一张 `2x4` 动作 sheet，例如 `raw-frames/01-收到离线-2x4.png ... 24-你说得对-2x4.png`。如果使用 `4x4`，文件名会变成 `01-收到离线-4x4.png`，每张 sheet 有 16 个连续动作格。
 
 每次 `image_gen` 产出后，先把生成图保存/导出为本地文件，再用 `accept-generated` 复制到计划里的标准文件名。这样后续 `qc-sheet` 和 `build-pack` 不会找错文件；同时 `generated-index.json` 会留下每张图的交接记录。
 
@@ -205,7 +220,8 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
 - `manifest.json` 里每个 item 的 `qc_status` 都应该是 `pass`。
 - `qc_report.json` 不应有 `errors`。
 - `animation_source` 应该是 `sheet`，不是 `single_bounce`。
-- `source_layout` 投稿默认应是 `2x4`，`source_frame_count` 应是 `8`。
+- `source_layout` 投稿默认应是 `2x4`，`source_frame_count` 应是 `8`；高表现力路线可以是 `4x4` / `16`。
+- `gif_frame_count` 应尽量等于 `source_frame_count`。如果 GIF 太大，处理器会降到 12/8/6/4 帧以满足微信大小限制，manifest 会记录最终帧数。
 - `background_mode` 应是 `transparent` 或 `magenta`。
 - `edge_touch` 应是 `false`，`bbox_drift.size_ratio` 不应超阈值。
 - 打开 `named-gifs/` 抽查至少 3 张：动作能读、文字不挡脸、边缘没有粉色残留。

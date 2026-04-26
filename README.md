@@ -8,7 +8,7 @@ The product rule is simple: if nobody would send the sticker in chat, it is not 
 
 ## What It Builds
 
-- A prompt plan with a character card, sendable meme list, and per-sticker no-text `2x4` 8-frame motion-sheet `image_gen` prompts.
+- A prompt plan with a character card, sendable meme list, and per-sticker no-text `2x4` 8-frame or `4x4` 16-frame motion-sheet `image_gen` prompts.
 - A `qc-sheet` gate for fake checkerboards, edge touch, empty frames, bbox drift, background mode, and frame count.
 - A 16/24 item animated GIF sticker album for WeChat Sticker Open Platform.
 - Human-readable GIF names in `named-gifs/`.
@@ -64,7 +64,7 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py accept-generated \
   --source-dir output/raw-frames/AgentMemePack
 ```
 
-Save accepted transparent-background raw `2x4` motion sheets into `raw-frames/`. In ChatGPT Images, ask for transparent background directly. In the API, use transparent output only with models and alpha formats that support it, such as PNG/WebP via `output_format`; for `gpt-image-2`, use a solid `#FF00FF` fallback background and let the processor remove it. Static 4x6 contact sheets are useful only for previews; split them first if you use that lower-quality path:
+Save accepted transparent-background raw `2x4` motion sheets into `raw-frames/`. Use `4x4` for selected stickers that need 16-frame smoother motion or more exaggerated pose acting; the manifest records the final GIF frame count after size compression. In ChatGPT Images, ask for transparent background directly. In the API, use transparent output only with models and alpha formats that support it, such as PNG/WebP via `output_format`; for `gpt-image-2`, use a solid `#FF00FF` fallback background and let the processor remove it. Static 4x6 contact sheets are useful only for previews; split them first if you use that lower-quality path:
 
 ```bash
 python skills/generate-meme-gif-pack/scripts/meme_pack.py qc-sheet \

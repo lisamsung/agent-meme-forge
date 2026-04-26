@@ -98,6 +98,7 @@ QC_LIMITS = {
         "size_drift_ratio": 0.85,
         "require_multiframe": False,
         "required_layout": None,
+        "required_layouts": None,
     },
     "standard": {
         "min_area_ratio": 0.006,
@@ -105,13 +106,15 @@ QC_LIMITS = {
         "size_drift_ratio": 0.45,
         "require_multiframe": True,
         "required_layout": None,
+        "required_layouts": None,
     },
     "submission": {
         "min_area_ratio": 0.008,
         "center_drift_ratio": 0.30,
         "size_drift_ratio": 0.25,
         "require_multiframe": True,
-        "required_layout": "2x4",
+        "required_layout": None,
+        "required_layouts": {"2x4", "4x4"},
     },
 }
 
@@ -375,14 +378,14 @@ def animation_frames_for_entry(entry: MemeEntry, frame_count: int = 4) -> list[s
         ]
     elif any(token in motion for token in ["nod", "understand", "blink"]):
         frames = [
-            f"{name}: character holds the same blank polite pose, eyes open",
-            f"{name}: eyelids lower clearly, head and shoulders stay fixed",
-            f"{name}: slow blink closes, same silhouette and hand pose",
+            f"{name}: character starts with a polite alive-looking pose, eyes open",
+            f"{name}: eyelids droop clearly, shoulders sink slightly, same silhouette and hand pose",
+            f"{name}: slow blink closes, mouth freezes into a forced calm smile",
             f"{name}: eyes reopen halfway with pupils drifting aside, same hand pose",
-            f"{name}: medium-small nod down, head moves 6 to 10 pixels but body stays anchored",
-            f"{name}: medium-small nod up, glasses shift subtly and return",
-            f"{name}: character returns to blank stare with empty confidence, eyes open wider",
-            f"{name}: same as frame 1, loopable return pose",
+            f"{name}: readable nod down, head moves 8 to 14 pixels, glasses tilt slightly",
+            f"{name}: nod rebounds up with eyebrows lifted and empty confidence",
+            f"{name}: character returns to blank stare, eyes open wider like the soul rebooted",
+            f"{name}: same as frame 1, loopable return pose with stable center",
         ]
     elif any(token in motion for token in ["recoil", "jump", "hit", "swoop"]):
         frames = [
@@ -441,12 +444,40 @@ def animation_frames_for_entry(entry: MemeEntry, frame_count: int = 4) -> list[s
         ]
     if frame_count <= len(frames):
         return frames[:frame_count]
-    return frames + [frames[-1]] * (frame_count - len(frames))
+    return expand_frame_plan(frames, frame_count)
+
+
+def expand_frame_plan(frames: list[str], frame_count: int) -> list[str]:
+    if not frames:
+        return []
+    expanded: list[str] = []
+    subject = frames[0].split(":", 1)[0] if ":" in frames[0] else "character"
+    for index, frame in enumerate(frames):
+        expanded.append(frame)
+        if len(expanded) >= frame_count:
+            break
+        next_index = (index + 1) % len(frames)
+        expanded.append(
+            f"{subject}: in-between from beat {index + 1} toward beat {next_index + 1}, "
+            "smooth pose transition with matching face, hands, outfit cues, scale, and cell center"
+        )
+        if len(expanded) >= frame_count:
+            break
+    while len(expanded) < frame_count:
+        expanded.append(
+            f"{subject}: in-between loop recovery beat {len(expanded) + 1}, keep the same identity and smooth timing"
+        )
+    return expanded[:frame_count]
 
 
 def sheet_prompt_rules(layout: str) -> str:
     rows, cols = parse_sheet_layout(layout)
     cells = rows * cols
+    extra_motion_rule = (
+        "For 4x4 or other 16-frame sheets, use the extra frames for anticipation, pose change, overshoot, recovery, and loop smoothing; do not make sixteen near-duplicates. "
+        if cells >= 16
+        else ""
+    )
     return (
         f"Motion sheet rules: exactly {cells} equal cells in a {layout} grid "
         f"({rows} row{'s' if rows != 1 else ''}, {cols} column{'s' if cols != 1 else ''}), reading left-to-right and top-to-bottom. "
@@ -454,6 +485,7 @@ def sheet_prompt_rules(layout: str) -> str:
         "Same character identity, same outfit cues, same color anchors, same bounding box, and same pixel scale in every cell. "
         "The entire subject and any prop or effect must fit fully inside each cell with clear margin; nothing may cross a cell edge. "
         "Make the frames feel like smooth in-between animation, not eight unrelated drawings: no camera cuts, no sudden pose swaps, no random new props, and keep the head anchor, shoulder line, outfit, and crop nearly fixed unless the frame plan explicitly moves them. "
+        f"{extra_motion_rule}"
         "Preferred background: real transparent PNG background with no visible backdrop when the current image interface supports transparency. "
         "If the image tool or API model cannot output true alpha transparency, use a 100% solid flat #FF00FF magenta background for local chroma-key removal. "
         "Never use gradients, shadows, colored washes, textured backgrounds, or fake checkerboard transparency behind the cells."
@@ -490,15 +522,17 @@ def motion_profile_prompt(motion_profile: str) -> str:
     profile = parse_motion_profile(motion_profile)
     if profile == "micro":
         return (
-            "Motion amplitude profile: medium-readable micro-motion. Keep the body, shoulder line, hand pose, crop, and subject center anchored; "
-            "use clear eyelid/pupil/expression changes and a 6 to 10 pixel head nod. No lateral drift."
+            "Motion amplitude profile: medium-readable micro-motion with expressive details. Keep the crop and subject center anchored; "
+            "use clear eyelid, pupil, eyebrow, mouth, glasses, shoulder-sink, and 8 to 14 pixel head-nod changes. "
+            "The pose should match the caption and be readable at 240px, but there must be no lateral drift."
         )
     if profile == "action":
         return (
-            "Motion amplitude profile: expressive action. Use a visible acting arc, but keep the character inside a stable cell center and avoid camera jumps."
+            "Motion amplitude profile: exaggerated sticker acting. Use anticipation, bigger silhouette changes, arms or shoulders, props, squash/stretch, overshoot, and recovery so the pose carries the caption. "
+            "Keep the character fully inside the cell, preserve identity and scale, and make neighboring frames continuous instead of jump-cut."
         )
     return (
-        "Motion amplitude profile: standard sticker loop. Use readable changes between frames while keeping identity, scale, and crop stable."
+        "Motion amplitude profile: standard sticker loop. Use readable face, hand, shoulder, or prop changes that match the meme caption while keeping identity, scale, and crop stable."
     )
 
 
@@ -549,6 +583,7 @@ def image_prompt_for_entry(
     frame_plan = animation_frames_for_entry(entry, rows * cols)
     frame_lines = "\n".join(f"Frame {frame_index}: {description}" for frame_index, description in enumerate(frame_plan, start=1))
     motion_profile = motion_profile_for_motion(entry.motion)
+    frame_count = len(frame_plan)
     prompt = (
         "Create one raw no-text motion sheet for a Chinese WeChat animated meme GIF sticker pack.\n"
         f"Character card: {character_card}\n"
@@ -579,7 +614,9 @@ def image_prompt_for_entry(
         "motion_profile": motion_profile,
         "animation_layout": animation_layout,
         "frames": frame_plan,
-        "8_frame_beats": frame_plan,
+        "frame_beats": frame_plan,
+        "8_frame_beats": frame_plan if frame_count == 8 else frame_plan[:8],
+        f"{frame_count}_frame_beats": frame_plan,
         "visual_gag": visual_gag_for_entry(entry),
         "negative_prompt": HARD_IMAGE_RULES,
         "qc_acceptance": qc_acceptance_for_entry(animation_layout),
@@ -1185,8 +1222,12 @@ def qc_sheet(
     required_layout = limits["required_layout"]
     if required_layout and detected_layout != required_layout:
         errors.append(f"{quality_mode} mode requires {required_layout} motion sheets; got {detected_layout}")
+    required_layouts = limits.get("required_layouts")
+    if required_layouts and detected_layout not in required_layouts:
+        allowed = ", ".join(sorted(required_layouts))
+        errors.append(f"{quality_mode} mode requires one of {allowed} motion sheets; got {detected_layout}")
     if bool(limits["require_multiframe"]) and len(frames) <= 1:
-        errors.append("single_bounce sources are preview-only; use a real 2x4 motion sheet for submission")
+        errors.append("single_bounce sources are preview-only; use a real 2x4 or 4x4 motion sheet for submission")
     if detected_layout in SHEET_LAYOUTS:
         expected_count = parse_sheet_layout(detected_layout)[0] * parse_sheet_layout(detected_layout)[1]
         if len(frames) != expected_count:
@@ -1373,12 +1414,59 @@ def quantize_gif_frame_with_transparency(frame: Image.Image, colors: int) -> Ima
     return paletted
 
 
+def gif_duration_for_frame_count(frame_count: int) -> int:
+    if frame_count >= 16:
+        return 105
+    if frame_count >= 12:
+        return 125
+    if frame_count >= 8:
+        return 170
+    if frame_count >= 6:
+        return 180
+    if frame_count >= 4:
+        return 190
+    return 240
+
+
+def gif_colors_for_frame_count(frame_count: int) -> int:
+    if frame_count >= 16:
+        return 128
+    if frame_count >= 12:
+        return 112
+    if frame_count >= 8:
+        return 104
+    if frame_count >= 6:
+        return 88
+    if frame_count >= 4:
+        return 72
+    if frame_count >= 3:
+        return 64
+    return 48
+
+
+def gif_attempt_frame_counts(frame_count: int) -> list[int]:
+    if frame_count <= 0:
+        return []
+    candidates = [frame_count, 16, 12, 8, 6, 4, 3, 2]
+    seen: set[int] = set()
+    attempts: list[int] = []
+    for candidate in candidates:
+        if 0 < candidate <= frame_count and candidate not in seen:
+            seen.add(candidate)
+            attempts.append(candidate)
+    return attempts
+
+
 def save_gif_under_limit(frames: list[Image.Image], path: Path, max_bytes: int = 500_000) -> int:
+    if not frames:
+        raise ValueError(f"Cannot save {path.name}: no frames were provided.")
     attempts = [
-        {"frames": frames, "duration": 170, "colors": 128},
-        {"frames": frames[:4], "duration": 190, "colors": 96},
-        {"frames": frames[:3], "duration": 210, "colors": 64},
-        {"frames": frames[:2], "duration": 240, "colors": 48},
+        {
+            "frames": frames[:attempt_count],
+            "duration": gif_duration_for_frame_count(attempt_count),
+            "colors": gif_colors_for_frame_count(attempt_count),
+        }
+        for attempt_count in gif_attempt_frame_counts(len(frames))
     ]
     last_size = 0
     for attempt in attempts:
@@ -1398,6 +1486,14 @@ def save_gif_under_limit(frames: list[Image.Image], path: Path, max_bytes: int =
         if last_size < max_bytes:
             return last_size
     raise ValueError(f"Could not compress {path.name} below {max_bytes} bytes; last size was {last_size}.")
+
+
+def gif_output_info(path: Path) -> dict[str, int]:
+    with Image.open(path) as gif:
+        return {
+            "gif_frame_count": int(getattr(gif, "n_frames", 1)),
+            "gif_duration_ms": int(gif.info.get("duration", 0) or 0),
+        }
 
 
 def save_png_under_limit(image: Image.Image, path: Path, max_bytes: int) -> int:
@@ -1557,6 +1653,7 @@ def build_pack(
         named_gif = named_dir / f"{named_slug}.gif"
         numbered_gif = main_dir / f"{index:02d}.gif"
         gif_size = save_gif_under_limit(frames, numbered_gif, WECHAT_SPEC["main"]["max_bytes"])
+        gif_info = gif_output_info(numbered_gif)
         shutil.copyfile(numbered_gif, named_gif)
 
         thumb = make_thumbnail(raw, WECHAT_SPEC["thumb"]["size"])
@@ -1594,6 +1691,7 @@ def build_pack(
                 "named_gif": relative_to_output(named_gif, output_dir),
                 "thumbnail": relative_to_output(thumb_path, output_dir),
                 "gif_bytes": gif_size,
+                **gif_info,
                 "thumb_bytes": thumb_size,
                 **qc_item,
             }
@@ -1662,6 +1760,8 @@ def build_pack(
                 "named_gif",
                 "thumbnail",
                 "gif_bytes",
+                "gif_frame_count",
+                "gif_duration_ms",
                 "thumb_bytes",
                 "qc_status",
                 "qc_warnings",
@@ -1880,7 +1980,7 @@ def run_plan_wizard(input_fn=input, print_fn=print) -> dict:
     if quality_mode == "submission":
         animation_layout = _prompt_choice(
             "Step 7: choose animation layout",
-            ["2x4"],
+            ["2x4", "4x4"],
             default_index=0,
             input_fn=input_fn,
             print_fn=print_fn,
@@ -1888,7 +1988,7 @@ def run_plan_wizard(input_fn=input, print_fn=print) -> dict:
     else:
         animation_layout = _prompt_choice(
             "Step 7: choose animation layout",
-            [DEFAULT_ANIMATION_LAYOUT, "1x4", "1x8", "2x2", "2x3"],
+            [DEFAULT_ANIMATION_LAYOUT, "1x4", "1x8", "4x4", "2x2", "2x3"],
             default_index=0,
             input_fn=input_fn,
             print_fn=print_fn,

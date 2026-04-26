@@ -1,6 +1,6 @@
 # Example Test Report
 
-本报告记录 `agent-meme-forge` 在本机跑出的端到端样例。前三组使用合成参考图验证处理器；AI 吉祥物样例使用原创 `2x4` motion sheet 验证“提示词计划 -> 生图/QC -> 切图 -> 微信打包”链路。最新版本已进一步迁移 `generate2dsprite` 的 motion-sheet 规则，默认推荐每个表情使用 `2x4` 八帧语义动作 sheet，并在投稿模式启用 strict QC。
+本报告记录 `agent-meme-forge` 在本机跑出的端到端样例。前三组使用合成参考图验证处理器；AI 吉祥物样例使用原创 `2x4` motion sheet 验证“提示词计划 -> 生图/QC -> 切图 -> 微信打包”链路。最新版本已进一步迁移 `generate2dsprite` 的 motion-sheet 规则，默认推荐每个表情使用 `2x4` 八帧语义动作 sheet；重点表情也支持 `4x4` 十六帧高表现力动作 sheet，并在投稿模式启用 strict QC。
 
 ## Test Environment
 
@@ -33,13 +33,13 @@ The published GIF previews have been regenerated from real `2x4` motion sheets a
 
 新版本新增高质量动画路径：
 
-- `plan-pack` 默认输出 `animation.source_layout = 2x4`，也支持 `1x8`。
+- `plan-pack` 默认输出 `animation.source_layout = 2x4`，也支持 `4x4` 十六帧高表现力路线和 `1x8`。
 - 每条 `image_prompts` 都要求 exact grid、same identity、same bounding box、same pixel scale、no edge crossing、transparent PNG background preferred、solid `#FF00FF` fallback。
-- `build-pack --source-layout 2x4` 会把每个源图当成一张 8 帧动作 sheet，而不是只对静态图做缩放 bounce。
+- `build-pack --source-layout 2x4` 会把每个源图当成一张 8 帧动作 sheet，而不是只对静态图做缩放 bounce；`--source-layout 4x4` 会按 16 帧处理，并在体积允许时保留 16 帧。
 - `remove_chroma_background()` 已增强近似洋红和边缘红/粉 spill 处理，降低 fallback 去背残留。
 - `qc-sheet` 会检测 fake checkerboard、空帧、edge touch、bbox drift、背景模式和帧数。
-- `build-pack --quality-mode submission --strict-qc` 默认拒绝 `single_bounce`，要求真实 `2x4` motion sheet。
-- `manifest.json` 为每个条目记录 `animation_source`、`source_layout`、`source_frame_count`、`qc_status`、`background_mode`、`bbox_drift`。
+- `build-pack --quality-mode submission --strict-qc` 默认拒绝 `single_bounce`，要求真实 `2x4` 或 `4x4` motion sheet。
+- `manifest.json` 为每个条目记录 `animation_source`、`source_layout`、`source_frame_count`、`gif_frame_count`、`gif_duration_ms`、`qc_status`、`background_mode`、`bbox_drift`。
 - AI 吉祥物 demo 的 24 个条目 `qc_status = pass`，`source_frame_count = 8`。
 
 ## Positive Results
@@ -98,4 +98,4 @@ Review 后补充验证：
 - GitHub Pages 的中文文档按钮改为 GitHub README 链接，不再解析到站点根目录导致 404。
 - 新增 QC 门禁：假透明、边缘出格、bbox 漂移、单图 bounce 在投稿模式会被明确拒绝。
 
-最新自动化验证：`pytest -q` 共 31 项通过。
+最新自动化验证：`pytest -q` 共 41 项通过。

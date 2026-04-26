@@ -198,6 +198,31 @@ def test_plan_pack_writes_shell_safe_commands_and_handoff():
     assert "accept-generated" in " ".join(plan["agent_instructions"])
 
 
+def test_plan_pack_can_request_16_frame_4x4_expressive_motion():
+    meme_pack = load_module()
+
+    plan = meme_pack.plan_pack(
+        subject="stylized office avatar with glasses",
+        persona="都市丽人",
+        style="clean-sticker",
+        pack_size=16,
+        mode="wechat",
+        animation_layout="4x4",
+    )
+
+    prompt_plan = plan["image_prompts"][0]
+    prompt = prompt_plan["prompt"]
+
+    assert plan["animation"]["source_layout"] == "4x4"
+    assert plan["animation"]["frames_per_sticker"] == 16
+    assert "exactly 16 equal cells in a 4x4 grid" in prompt
+    assert "Frame 16" in prompt
+    assert len(prompt_plan["frame_beats"]) == 16
+    assert len(set(prompt_plan["frame_beats"])) > 10
+    assert any("in-between" in beat for beat in prompt_plan["frame_beats"])
+    assert prompt_plan["16_frame_beats"] == prompt_plan["frame_beats"]
+
+
 def test_accept_generated_copies_image_to_planned_raw_filename(tmp_path: Path):
     meme_pack = load_module()
     plan = meme_pack.plan_pack(subject="round mascot", pack_name="Agent Meme Pack")
@@ -479,6 +504,30 @@ def test_build_pack_uses_8_frame_motion_sheet(tmp_path: Path):
     assert sum(1 for pixel in meme_pack.pixel_data(first_frame.getchannel("A")) if pixel == 0) > 0
 
 
+def test_build_pack_uses_16_frame_4x4_motion_sheet_when_under_limit(tmp_path: Path):
+    meme_pack = load_module()
+    source = make_motion_sheets(tmp_path, 16, "4x4")
+    output = tmp_path / "pack"
+
+    result = meme_pack.build_pack(
+        source_dir=source,
+        output_dir=output,
+        entries=meme_pack.default_entries("都市丽人", 16),
+        mode="wechat",
+        source_layout="4x4",
+    )
+
+    first_item = result["items"][0]
+    gif = Image.open(output / "wechat-submit" / "main" / "01.gif")
+
+    assert first_item["animation_source"] == "sheet"
+    assert first_item["source_layout"] == "4x4"
+    assert first_item["source_frame_count"] == 16
+    assert first_item["gif_frame_count"] == 16
+    assert 95 <= first_item["gif_duration_ms"] <= 120
+    assert gif.n_frames == 16
+
+
 def test_qc_sheet_passes_clean_magenta_2x4_motion_sheet(tmp_path: Path):
     meme_pack = load_module()
     sheet = make_single_motion_sheet(tmp_path, "2x4")
@@ -490,6 +539,17 @@ def test_qc_sheet_passes_clean_magenta_2x4_motion_sheet(tmp_path: Path):
     assert report["background_mode"] == "magenta"
     assert report["edge_touch"] is False
     assert report["bbox_drift"]["center_ratio"] < 0.2
+
+
+def test_qc_sheet_allows_clean_4x4_submission_motion_sheet(tmp_path: Path):
+    meme_pack = load_module()
+    sheet = make_single_motion_sheet(tmp_path, "4x4")
+
+    report = meme_pack.qc_sheet(sheet, source_layout="4x4", quality_mode="submission", strict=True)
+
+    assert report["status"] == "pass"
+    assert report["source_layout"] == "4x4"
+    assert report["frame_count"] == 16
 
 
 def test_qc_sheet_passes_true_alpha_motion_sheet(tmp_path: Path):

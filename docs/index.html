@@ -201,7 +201,7 @@
         <p class="eyebrow">Codex Skill · WeChat GIF Sticker Pack</p>
         <h1>agent-meme-forge</h1>
         <p class="lead">
-          从参考图或纯文字角色概念生成一套真的会被发送的动态表情包。先规划角色卡和 2x4 八帧 motion-sheet 提示词，再输出默认 24 个适配微信表情开放平台的 GIF。
+          从参考图或纯文字角色概念生成一套真的会被发送的动态表情包。先规划角色卡和 2x4 八帧或 4x4 十六帧 motion-sheet 提示词，再输出适配微信表情开放平台的 GIF。
         </p>
         <div class="actions">
           <a class="button" href="https://github.com/lisamsung/agent-meme-forge">GitHub</a>
@@ -226,7 +226,7 @@
           </div>
           <div class="card">
             <h3>主动生图</h3>
-            <p>支持 text_concept 直接起角色，自动写 24 条无文字 2x4 八帧动作 sheet 提示词，再统一加中文梗。</p>
+            <p>支持 text_concept 直接起角色，自动写无文字 2x4 八帧或 4x4 十六帧动作 sheet 提示词，再统一加中文梗。</p>
           </div>
           <div class="card">
             <h3>交互选择</h3>
@@ -234,7 +234,7 @@
           </div>
           <div class="card">
             <h3>真实帧动画</h3>
-            <p>迁移 sprite sheet 规则：精确网格、同尺度、同包围盒、不出格，processor 按 8 个真实帧生成 GIF。</p>
+            <p>迁移 sprite sheet 规则：精确网格、同尺度、同包围盒、不出格，processor 按 8 或 16 个真实帧生成 GIF。</p>
           </div>
           <div class="card">
             <h3>QC 门禁</h3>
@@ -252,7 +252,7 @@
             </p>
             <p>
               这里的 demo 是原创暖色 AI 助手，不使用官方 logo 或品牌标识。完整测试包为 24 张，
-              全部为 2x4 八帧 sheet，QC 状态为 pass，最大 GIF 约 70KB。
+              默认展示为 2x4 八帧 sheet；现在也支持 4x4 十六帧高表现力 sheet，并在 manifest 记录最终 GIF 帧数。
             </p>
           </div>
           <div class="sample-row">
@@ -289,7 +289,7 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
   --quality-mode submission \
   --output output/ai-research-plan.json
 
-# Use the first 3 image_prompts with Codex image_gen, save accepted transparent 2x4 sheets to raw-frames/.
+# Use the first 3 image_prompts with Codex image_gen, save accepted transparent 2x4 or 4x4 sheets to raw-frames/.
 python skills/generate-meme-gif-pack/scripts/meme_pack.py qc-sheet \
   --input raw-frames/01-收到离线-2x4.png \
   --source-layout 2x4 \

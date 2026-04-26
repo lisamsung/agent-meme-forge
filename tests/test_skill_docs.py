@@ -19,6 +19,8 @@ def test_skill_frontmatter_and_hard_rules_are_present():
     assert "text_concept" in text
     assert "image_gen" in text
     assert "motion sheet" in text
+    assert "4x4" in text
+    assert "16-frame" in text
     assert "--source-layout" in text
     assert "qc-sheet" in text
     assert "accept-generated" in text
@@ -60,6 +62,8 @@ def test_prompt_rules_support_direct_text_generation():
     assert "motion_profile=micro" in text
     assert "lateral drift" in text
     assert "2x4" in text
+    assert "4x4" in text
+    assert "16-frame" in text
     assert "1x4" in text
     assert "transparent PNG background" in text
     assert "ChatGPT Images" in text

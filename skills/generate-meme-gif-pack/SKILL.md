@@ -26,8 +26,8 @@ Infer only after the user gives a minimal request such as “做科研打工人�
 - `pack_size`: WeChat mode only allows 16 or 24. Default to 24.
 - `mode`: `wechat` default, or `self_use`.
 - `tone`: default `职场发疯但安全`.
-- `animation_layout`: default `2x4` motion sheet per sticker for 8-frame smoother GIFs; also `1x4`, `1x8`, `2x2`, or `2x3`.
-- `quality_mode`: default `submission`; also `standard` or `preview`. Submission requires strict QC, real `2x4` sheets, and no single-image bounce fallback.
+- `animation_layout`: default `2x4` motion sheet per sticker for 8-frame GIFs. Use `4x4` for 16-frame smoother/high-performance stickers when the caption needs a bigger pose arc; also supports `1x4`, `1x8`, `2x2`, or `2x3` for preview/standard workflows.
+- `quality_mode`: default `submission`; also `standard` or `preview`. Submission requires strict QC, real `2x4` or `4x4` sheets, and no single-image bounce fallback.
 
 If the user asks for 18 and wants WeChat upload, explain that WeChat albums use 16 or 24, then default to 24 unless they explicitly switch to `self_use`.
 
@@ -49,7 +49,8 @@ If the user asks for 18 and wants WeChat upload, explain that WeChat albums use 
 - If `image_gen` returns only an attachment with no usable local file path, stop and ask the user to save/export the attachment locally before QC. Do not pretend `qc-sheet` can read an unsaved chat attachment.
 - Prefer one semantic motion sheet per sticker, not one static pose. Single-pose sources are allowed only for fast previews or fallback.
 - Motion sheets must use exact grid count, same character identity, same bounding box, same pixel scale, clear margins, no cell-edge crossing, and no text.
-- For subtle reactions such as blink, nod, loading, or blank stare, use `motion_profile=micro`: stable character anchor, no lateral drift, but medium-readable expression changes. A blink/nod should visibly change eyelids, pupils, glasses, or head angle; it must not become a nearly static sticker.
+- For subtle reactions such as blink, nod, loading, or blank stare, use `motion_profile=micro`: stable character anchor, no lateral drift, but medium-readable expression and small posture changes. A blink/nod should visibly change eyelids, pupils, glasses, shoulders, mouth, or head angle; it must not become a nearly static sticker.
+- For exaggerated reactions, use `4x4`/16-frame sheets when the model can keep identity stable. The extra frames should create anticipation, pose change, overshoot, recovery, and loop smoothing, not 16 duplicate poses.
 - Micro-motion QC is stricter than normal action QC. If center drift is visible, regenerate; do not treat drifting across the cell as intentional motion.
 - Prefer transparent PNG background directly from the image interface when supported. ChatGPT Images can be asked for transparent background; API model support varies, and `gpt-image-2` should use solid flat `#FF00FF` fallback plus local cleanup because it does not support true transparent background.
 - For API models that support transparent output, request an alpha-capable format such as PNG or WebP, for example with `background: "transparent"` and `output_format: "png"`.
@@ -100,8 +101,8 @@ For a reference image, add `--reference-image path/to/reference.png` and describ
 5. Generate and QC raw images:
    - MUST call built-in `image_gen` for the first 3 generated `image_prompts`, not all 24 at once, when the tool is available.
    - Do not stop after writing the plan; the plan is only an intermediate artifact.
-   - Default quality path: one `2x4` no-text motion sheet per sticker.
-   - Each sheet frame should be a real acting beat: start, anticipation, action, escalation, peak reaction, rebound, settle, loopable return. For quiet reactions, use medium-readable eyelid/pupil/head/glasses changes instead of big pose jumps or nearly invisible motion.
+- Default quality path: one `2x4` no-text motion sheet per sticker. Use `4x4` for selected stickers that need more dramatic body language or smoother transitions.
+- Each sheet frame should be a real acting beat: start, anticipation, action, escalation, peak reaction, rebound, settle, loopable return. For 16-frame sheets, include in-between frames between those beats so the motion reads as continuous. For quiet reactions, use medium-readable eyelid/pupil/head/glasses/shoulder changes instead of big pose jumps or nearly invisible motion.
    - For a fast first pass only, one 4x6 contact sheet of static poses is acceptable; split it with `split-sheet` before `build-pack`.
    - Ask for transparent PNG background first in ChatGPT Images or any API model that supports transparency. If using `gpt-image-2` or another model/tool that cannot output true alpha, use a solid flat `#FF00FF` background; the processor removes it locally.
    - After each generated image is available as a local file, run `accept-generated` so it lands at the planned raw filename.
