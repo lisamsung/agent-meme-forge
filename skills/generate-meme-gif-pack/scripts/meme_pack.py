@@ -86,6 +86,7 @@ SHEET_LAYOUTS = {
 
 DEFAULT_ANIMATION_LAYOUT = "2x4"
 QUALITY_MODES = {"preview", "standard", "submission"}
+MOTION_PROFILES = {"micro", "standard", "action"}
 CAPTION_RESERVED_HEIGHT = 76
 SUBJECT_CANVAS_SIZE = WECHAT_SPEC["main"]["size"]
 
@@ -112,6 +113,12 @@ QC_LIMITS = {
         "require_multiframe": True,
         "required_layout": "2x4",
     },
+}
+
+MOTION_PROFILE_LIMITS = {
+    "micro": {"center_drift_ratio": 0.07, "size_drift_ratio": 0.18, "alignment_mode": "stable"},
+    "standard": {"center_drift_ratio": None, "size_drift_ratio": None, "alignment_mode": "preserve"},
+    "action": {"center_drift_ratio": 0.34, "size_drift_ratio": 0.32, "alignment_mode": "preserve"},
 }
 
 
@@ -282,8 +289,52 @@ def parse_quality_mode(quality_mode: str) -> str:
     return quality_mode
 
 
+def parse_motion_profile(motion_profile: str) -> str:
+    if motion_profile not in MOTION_PROFILES:
+        raise ValueError(
+            f"Unsupported motion profile '{motion_profile}'. Use one of: {', '.join(sorted(MOTION_PROFILES))}."
+        )
+    return motion_profile
+
+
 def pixel_data(image: Image.Image):
     return image.get_flattened_data() if hasattr(image, "get_flattened_data") else image.getdata()
+
+
+def motion_profile_for_motion(motion: str) -> str:
+    normalized = motion.lower()
+    if any(token in normalized for token in ["blink", "nod", "understand", "blank", "loading"]):
+        return "micro"
+    if any(
+        token in normalized
+        for token in [
+            "recoil",
+            "jump",
+            "hit",
+            "swoop",
+            "shake",
+            "tremble",
+            "panic",
+            "paper",
+            "scroll",
+            "document",
+            "literature",
+            "typing",
+            "terminal",
+            "compile",
+            "keyboard",
+            "summon",
+            "glow",
+            "sparkle",
+            "ritual",
+        ]
+    ):
+        return "action"
+    return "standard"
+
+
+def alignment_mode_for_profile(motion_profile: str) -> str:
+    return str(MOTION_PROFILE_LIMITS[parse_motion_profile(motion_profile)]["alignment_mode"])
 
 
 def animation_frames_for_entry(entry: MemeEntry, frame_count: int = 4) -> list[str]:
@@ -325,12 +376,12 @@ def animation_frames_for_entry(entry: MemeEntry, frame_count: int = 4) -> list[s
     elif any(token in motion for token in ["nod", "understand", "blink"]):
         frames = [
             f"{name}: character holds the same blank polite pose, eyes open",
-            f"{name}: eyelids lower slightly, head and shoulders stay fixed",
+            f"{name}: eyelids lower clearly, head and shoulders stay fixed",
             f"{name}: slow blink closes, same silhouette and hand pose",
-            f"{name}: eyes reopen halfway, tiny uncertain smile",
-            f"{name}: very small nod down, only the head moves a little",
-            f"{name}: very small nod up, glasses shift subtly",
-            f"{name}: character returns to blank stare with empty confidence",
+            f"{name}: eyes reopen halfway with pupils drifting aside, same hand pose",
+            f"{name}: medium-small nod down, head moves 6 to 10 pixels but body stays anchored",
+            f"{name}: medium-small nod up, glasses shift subtly and return",
+            f"{name}: character returns to blank stare with empty confidence, eyes open wider",
             f"{name}: same as frame 1, loopable return pose",
         ]
     elif any(token in motion for token in ["recoil", "jump", "hit", "swoop"]):
@@ -435,6 +486,22 @@ def qc_acceptance_for_entry(layout: str) -> str:
     )
 
 
+def motion_profile_prompt(motion_profile: str) -> str:
+    profile = parse_motion_profile(motion_profile)
+    if profile == "micro":
+        return (
+            "Motion amplitude profile: medium-readable micro-motion. Keep the body, shoulder line, hand pose, crop, and subject center anchored; "
+            "use clear eyelid/pupil/expression changes and a 6 to 10 pixel head nod. No lateral drift."
+        )
+    if profile == "action":
+        return (
+            "Motion amplitude profile: expressive action. Use a visible acting arc, but keep the character inside a stable cell center and avoid camera jumps."
+        )
+    return (
+        "Motion amplitude profile: standard sticker loop. Use readable changes between frames while keeping identity, scale, and crop stable."
+    )
+
+
 def regenerate_hint_for_entry(entry: MemeEntry, layout: str) -> str:
     caption = entry.text.replace("\n", " / ")
     return (
@@ -481,6 +548,7 @@ def image_prompt_for_entry(
     rows, cols = parse_sheet_layout(animation_layout)
     frame_plan = animation_frames_for_entry(entry, rows * cols)
     frame_lines = "\n".join(f"Frame {frame_index}: {description}" for frame_index, description in enumerate(frame_plan, start=1))
+    motion_profile = motion_profile_for_motion(entry.motion)
     prompt = (
         "Create one raw no-text motion sheet for a Chinese WeChat animated meme GIF sticker pack.\n"
         f"Character card: {character_card}\n"
@@ -491,6 +559,7 @@ def image_prompt_for_entry(
         f"The final Chinese caption will be added later by a local processor as \"{caption}\"; do not draw any text.\n"
         f"Acting direction: exaggerated readable reaction, {entry.motion}; make the emotion understandable before the caption is added.\n"
         f"{sheet_prompt_rules(animation_layout)}\n"
+        f"{motion_profile_prompt(motion_profile)}\n"
         f"Frame-by-frame acting plan:\n{frame_lines}\n"
         "Motion continuity: use small readable in-between changes between neighboring frames; avoid flicker, teleporting hands, changing camera distance, changing face proportions, or adding/removing props that are not in the frame plan.\n"
         f"Tone: {tone}; funny, slightly unhinged, but safe for public WeChat review.\n"
@@ -507,6 +576,7 @@ def image_prompt_for_entry(
         "scene": entry.scene,
         "motion_type": entry.motion,
         "motion": entry.motion,
+        "motion_profile": motion_profile,
         "animation_layout": animation_layout,
         "frames": frame_plan,
         "8_frame_beats": frame_plan,
@@ -1024,8 +1094,19 @@ def bbox_drift_metrics(bboxes: list[tuple[int, int, int, int]], cell_size: tuple
     }
 
 
-def analyze_frames_for_qc(frames: list[Image.Image], quality_mode: str) -> tuple[list[dict[str, object]], list[str], list[str], dict[str, float], bool]:
-    limits = QC_LIMITS[quality_mode]
+def qc_limits_for(quality_mode: str, motion_profile: str) -> dict[str, object]:
+    limits = dict(QC_LIMITS[parse_quality_mode(quality_mode)])
+    profile_limits = MOTION_PROFILE_LIMITS[parse_motion_profile(motion_profile)]
+    for key in ("center_drift_ratio", "size_drift_ratio"):
+        if profile_limits[key] is not None:
+            limits[key] = profile_limits[key]
+    return limits
+
+
+def analyze_frames_for_qc(
+    frames: list[Image.Image], quality_mode: str, motion_profile: str = "standard"
+) -> tuple[list[dict[str, object]], list[str], list[str], dict[str, float], bool]:
+    limits = qc_limits_for(quality_mode, motion_profile)
     errors: list[str] = []
     warnings: list[str] = []
     frame_reports: list[dict[str, object]] = []
@@ -1071,8 +1152,10 @@ def qc_sheet(
     source_layout: str = "auto",
     quality_mode: str = "submission",
     strict: bool = True,
+    motion_profile: str = "standard",
 ) -> dict:
     quality_mode = parse_quality_mode(quality_mode)
+    motion_profile = parse_motion_profile(motion_profile)
     image = Image.open(input_path)
     errors: list[str] = []
     warnings: list[str] = []
@@ -1108,7 +1191,9 @@ def qc_sheet(
         expected_count = parse_sheet_layout(detected_layout)[0] * parse_sheet_layout(detected_layout)[1]
         if len(frames) != expected_count:
             errors.append(f"expected {expected_count} frames for {detected_layout}, got {len(frames)}")
-    frame_reports, frame_warnings, frame_errors, drift, edge_touch = analyze_frames_for_qc(frames, quality_mode)
+    frame_reports, frame_warnings, frame_errors, drift, edge_touch = analyze_frames_for_qc(
+        frames, quality_mode, motion_profile
+    )
     warnings.extend(frame_warnings)
     errors.extend(frame_errors)
 
@@ -1120,6 +1205,7 @@ def qc_sheet(
         "input": str(input_path),
         "status": status,
         "quality_mode": quality_mode,
+        "motion_profile": motion_profile,
         "strict": strict,
         "animation_source": animation_source,
         "source_layout": detected_layout,
@@ -1155,7 +1241,10 @@ def normalize_motion_frames(
     size: tuple[int, int] = SUBJECT_CANVAS_SIZE,
     caption_reserved_height: int = CAPTION_RESERVED_HEIGHT,
     margin: int = 18,
+    alignment_mode: str = "preserve",
 ) -> tuple[list[Image.Image], dict[str, object]]:
+    if alignment_mode not in {"preserve", "stable"}:
+        raise ValueError("alignment_mode must be 'preserve' or 'stable'.")
     cleaned_frames: list[Image.Image] = []
     bboxes: list[tuple[int, int, int, int]] = []
     component_reports: list[dict[str, object]] = []
@@ -1168,13 +1257,19 @@ def normalize_motion_frames(
             bboxes.append(bbox)
         cleaned_frames.append(filtered)
 
-    if bboxes:
+    if bboxes and alignment_mode == "preserve":
         left = max(0, min(box[0] for box in bboxes) - 2)
         upper = max(0, min(box[1] for box in bboxes) - 2)
         right = min(cleaned_frames[0].width, max(box[2] for box in bboxes) + 2)
         lower = min(cleaned_frames[0].height, max(box[3] for box in bboxes) + 2)
         common_crop = (left, upper, right, lower)
         cropped_frames = [frame.crop(common_crop) for frame in cleaned_frames]
+    elif bboxes:
+        common_crop = None
+        cropped_frames = []
+        for frame in cleaned_frames:
+            bbox = frame.getbbox()
+            cropped_frames.append(frame.crop(bbox) if bbox else frame)
     else:
         common_crop = None
         cropped_frames = cleaned_frames
@@ -1199,6 +1294,7 @@ def normalize_motion_frames(
         normalized.append(canvas)
     return normalized, {
         "scale_normalized": True,
+        "alignment_mode": alignment_mode,
         "normalization_scale": round(scale, 4),
         "source_bbox_count": len(bboxes),
         "common_crop": common_crop,
@@ -1432,7 +1528,9 @@ def build_pack(
 
     for index, entry in enumerate(entries, start=1):
         image_path = image_paths[(index - 1) % len(image_paths)]
-        qc_report = qc_sheet(image_path, source_layout, quality_mode, strict=strict_qc)
+        motion_profile = motion_profile_for_motion(entry.motion)
+        alignment_mode = alignment_mode_for_profile(motion_profile)
+        qc_report = qc_sheet(image_path, source_layout, quality_mode, strict=strict_qc, motion_profile=motion_profile)
         raw_frames, animation_source, detected_layout = load_source_frames(image_path, source_layout)
         raw = raw_frames[0]
         cached_sources.append(raw)
@@ -1445,7 +1543,7 @@ def build_pack(
             warnings = "; ".join(qc_report["warnings"])
             raise ValueError(f"{image_path.name} has QC warnings: {warnings}")
         if len(raw_frames) > 1:
-            normalized_frames, normalization_meta = normalize_motion_frames(raw_frames)
+            normalized_frames, normalization_meta = normalize_motion_frames(raw_frames, alignment_mode=alignment_mode)
             frames = caption_source_frames(normalized_frames, entry.text, font_path)
         else:
             preview_only = True
@@ -1486,6 +1584,8 @@ def build_pack(
                 "keyword": entry.keyword,
                 "scene": entry.scene,
                 "motion": entry.motion,
+                "motion_profile": motion_profile,
+                "alignment_mode": alignment_mode,
                 "source": str(image_path),
                 "animation_source": animation_source,
                 "source_layout": detected_layout,
@@ -1553,6 +1653,8 @@ def build_pack(
                 "keyword",
                 "text",
                 "scene",
+                "motion_profile",
+                "alignment_mode",
                 "animation_source",
                 "source_layout",
                 "source_frame_count",
@@ -1855,6 +1957,7 @@ def main(argv: list[str] | None = None) -> int:
     qc_parser.add_argument("--input", required=True, type=Path)
     qc_parser.add_argument("--source-layout", default="auto")
     qc_parser.add_argument("--quality-mode", default="submission", choices=sorted(QUALITY_MODES))
+    qc_parser.add_argument("--motion-profile", default="standard", choices=sorted(MOTION_PROFILES))
     qc_parser.add_argument("--output", type=Path)
     qc_parser.add_argument("--allow-warnings", action="store_true")
     qc_parser.add_argument("--no-strict", dest="strict", action="store_false", default=True)
@@ -1929,7 +2032,13 @@ def main(argv: list[str] | None = None) -> int:
             return 2
     if args.command == "qc-sheet":
         try:
-            report = qc_sheet(args.input, args.source_layout, args.quality_mode, strict=args.strict)
+            report = qc_sheet(
+                args.input,
+                args.source_layout,
+                args.quality_mode,
+                strict=args.strict,
+                motion_profile=args.motion_profile,
+            )
             if args.output:
                 write_qc_report(args.output, report)
             print(json.dumps(report, ensure_ascii=False, indent=2))

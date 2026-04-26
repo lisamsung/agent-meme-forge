@@ -51,7 +51,7 @@ def make_motion_sheets(tmp_path: Path, count: int = 24, layout: str = "1x4") -> 
             x = col * cell
             y = row * cell
             color = ((70 + index * 9 + frame * 35) % 220, (90 + frame * 45) % 220, 180, 255)
-            offset = frame * 6
+            offset = (frame % 3) * 2
             draw.rounded_rectangle((x + 24 + offset // 2, y + 18, x + 72 + offset // 2, y + 72), radius=16, fill=color)
             draw.ellipse((x + 38 + offset // 2, y + 36, x + 45 + offset // 2, y + 43), fill=(255, 255, 255, 255))
             draw.ellipse((x + 56 + offset // 2, y + 36, x + 63 + offset // 2, y + 43), fill=(255, 255, 255, 255))
@@ -154,6 +154,8 @@ def test_plan_pack_builds_direct_text_image_prompts():
     assert "exactly 8 equal cells in a 2x4 grid" in first_prompt
     assert "same bounding box" in first_prompt.lower()
     assert "smooth in-between animation" in first_prompt
+    assert "medium-readable micro-motion" in first_prompt
+    assert "no lateral drift" in first_prompt.lower()
     assert "avoid flicker" in first_prompt.lower()
     assert "same silhouette and hand pose" in first_prompt
     assert "transparent png background" in first_prompt.lower()
@@ -162,6 +164,7 @@ def test_plan_pack_builds_direct_text_image_prompts():
     assert first_prompt_plan["meme_name"] == first_prompt_plan["name"]
     assert first_prompt_plan["send_scene"] == first_prompt_plan["scene"]
     assert first_prompt_plan["motion_type"] == first_prompt_plan["motion"]
+    assert first_prompt_plan["motion_profile"] == "micro"
     assert len(first_prompt_plan["8_frame_beats"]) == 8
     assert first_prompt_plan["visual_gag"]
     assert "no text" in first_prompt_plan["negative_prompt"]
@@ -468,6 +471,8 @@ def test_build_pack_uses_8_frame_motion_sheet(tmp_path: Path):
     assert first_item["animation_source"] == "sheet"
     assert first_item["source_layout"] == "2x4"
     assert first_item["source_frame_count"] == 8
+    assert first_item["motion_profile"] == "micro"
+    assert first_item["alignment_mode"] == "stable"
     assert gif.n_frames == 8
     assert gif.info["duration"] >= 160
     first_frame = next(ImageSequence.Iterator(gif)).convert("RGBA")
@@ -551,7 +556,7 @@ def test_normalize_motion_frames_preserves_relative_motion():
         draw.rounded_rectangle((left, 22, left + 34, 60), radius=10, fill=(20, 120, 220, 255))
         frames.append(frame)
 
-    normalized, _ = meme_pack.normalize_motion_frames(frames)
+    normalized, _ = meme_pack.normalize_motion_frames(frames, alignment_mode="preserve")
     centers = []
     for frame in normalized:
         box = frame.getbbox()
@@ -560,6 +565,49 @@ def test_normalize_motion_frames_preserves_relative_motion():
 
     assert centers == sorted(centers)
     assert centers[-1] - centers[0] > 4
+
+
+def test_normalize_motion_frames_stable_alignment_removes_source_drift():
+    meme_pack = load_module()
+    frames = []
+    for left in [12, 22, 34, 44]:
+        frame = Image.new("RGBA", (96, 96), (255, 0, 255, 255))
+        draw = ImageDraw.Draw(frame)
+        draw.rounded_rectangle((left, 20, left + 34, 60), radius=10, fill=(20, 120, 220, 255))
+        frames.append(frame)
+
+    normalized, meta = meme_pack.normalize_motion_frames(frames, alignment_mode="stable")
+    centers = []
+    for frame in normalized:
+        box = frame.getbbox()
+        assert box is not None
+        centers.append((box[0] + box[2]) / 2)
+
+    assert meta["alignment_mode"] == "stable"
+    assert max(centers) - min(centers) <= 1
+
+
+def test_qc_sheet_rejects_micro_motion_center_drift(tmp_path: Path):
+    meme_pack = load_module()
+    rows, cols = meme_pack.parse_sheet_layout("2x4")
+    cell = 96
+    sheet = Image.new("RGBA", (cols * cell, rows * cell), (255, 0, 255, 255))
+    draw = ImageDraw.Draw(sheet)
+    offsets = [6, 16, 27, 36, 6, 16, 27, 36]
+    for frame, offset in enumerate(offsets):
+        row = frame // cols
+        col = frame % cols
+        x = col * cell
+        y = row * cell
+        draw.rounded_rectangle((x + offset, y + 20, x + offset + 36, y + 60), radius=10, fill=(20, 120, 220, 255))
+    path = tmp_path / "micro-drift.png"
+    sheet.save(path)
+
+    report = meme_pack.qc_sheet(path, source_layout="2x4", quality_mode="submission", strict=True, motion_profile="micro")
+
+    assert report["status"] == "fail"
+    assert report["motion_profile"] == "micro"
+    assert any("frame center drift is too high" in error for error in report["errors"])
 
 
 def test_qc_sheet_rejects_fake_checkerboard_transparency(tmp_path: Path):

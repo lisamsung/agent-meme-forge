@@ -55,7 +55,8 @@ The high-quality path uses semantic motion sheets, adapted from `generate2dsprit
 - no borders, no separator lines, no numbered cells
 - same character identity, same outfit cues, same color anchors, same bounding box, and same pixel scale across frames
 - make neighboring frames feel like in-between animation from one drawing, not separate illustrations
-- for blink, nod, blank stare, loading, or other quiet reactions, use micro-motion: eyelids, pupils, tiny head tilt, tiny glasses shift, or a few-pixel shoulder change
+- for blink, nod, blank stare, loading, or other quiet reactions, use medium-readable micro-motion: clear eyelid changes, pupil movement, glasses shift, eyebrow change, or a 6 to 10 pixel head nod
+- micro-motion means stable character anchor, not tiny invisible motion; no lateral drift across the cell
 - no camera cuts, no sudden crop changes, no random new props, and no teleporting hands
 - the entire character, prop, effect, sweat drop, paper stack, chart, laptop, or glow must fit fully inside each cell
 - leave clear margin on all four sides; nothing may cross a cell edge
@@ -147,6 +148,7 @@ Hard negative rules: no text, no words, no Chinese characters, no Latin letters,
 
 - Prefer semantic tiny loops: blink, nod, shake, sweat drop, typing escalation, document hit, paper pile squash, chart droop, progress bar wobble.
 - Quiet reaction loops should be slow enough to read. The processor defaults to slower 170ms frame timing for 8-frame GIFs and preserves transparent GIF output.
+- Quiet reactions use `motion_profile=micro` during QC/build. This rejects visible center drift and uses stable alignment so the character does not slide across the GIF.
 - Avoid large camera moves, complex backgrounds, or multi-character scenes.
 - Do not depend on tiny props for the joke; text and expression carry the meme.
 - If identity drifts between frames, regenerate with stricter same bounding box / same pixel scale rules.
