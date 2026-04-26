@@ -44,6 +44,9 @@ def test_skill_frontmatter_and_hard_rules_are_present():
     assert "not final delivery" in text
     assert "preview.html" in text
     assert "named-gifs" in text
+    assert "first 3 are a QC checkpoint, not a stopping point" in text
+    assert "do not end the task after the first-3 preview" in text
+    assert "continue to the remaining prompts in the same workflow" in text
 
 
 def test_references_cover_wechat_prompt_persona_and_humor():
@@ -96,6 +99,8 @@ def test_prompt_rules_support_direct_text_generation():
     assert "intermediate raw keypose sheet" in text
     assert "not the final deliverable" in text
     assert "final handoff" in text
+    assert "not a stopping point" in text
+    assert "full pack" in text
 
 
 def test_pages_readme_link_stays_inside_project_or_github():

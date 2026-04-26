@@ -322,7 +322,8 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py qc-sheet \
 	  --strict-qc \
 	  --strict-continuity-qc
 
-	# Full build requires one source image per sticker.
+	# The first 3 are only a QC checkpoint, not the final pack.
+	# Full build requires one accepted source image per sticker.
 	python skills/generate-meme-gif-pack/scripts/meme_pack.py build-pack \
 	  --source-dir raw-frames \
 	  --output-dir output/my-pack \

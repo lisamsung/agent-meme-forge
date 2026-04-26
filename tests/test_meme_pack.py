@@ -216,7 +216,14 @@ def test_plan_pack_builds_direct_text_image_prompts():
     assert plan["quality_mode"] == "submission"
     assert "MUST call built-in image_gen" in plan["agent_instructions"][0]
     assert "Do not stop after writing the plan" in plan["agent_instructions"][0]
+    joined_instructions = " ".join(plan["agent_instructions"])
+    assert "first 3 are a QC checkpoint, not a stopping point" in joined_instructions
+    assert "do not end the task after the first-3 preview" in joined_instructions
+    assert "continue to the remaining prompts in the same workflow" in joined_instructions
     assert "Replace any weak joke" in " ".join(plan["agent_instructions"])
+    assert plan["workflow_contract"]["first_three_policy"] == "The first 3 are a QC checkpoint, not a stopping point."
+    assert "Complete only when 24 accepted raw images" in plan["workflow_contract"]["completion_definition"]
+    assert "user explicitly requested first-3 preview only" in plan["workflow_contract"]["allowed_stop_conditions"]
     assert plan["requires_agent_tooling"]["image_generation_tool"] == "image_gen"
     assert plan["raw_output_dir"] == "output/raw-frames/AgentMemePack"
     assert "accept-generated" in plan["image_handoff"]["accept_generated_command"]
@@ -538,6 +545,7 @@ def test_plan_wizard_collects_text_concept_choices(tmp_path: Path):
     assert plan["animation"]["source_mode"] == "keyposes"
     assert plan["animation"]["source_layout"] == "2x2"
     assert any("先生成前 3 张" in message for message in messages)
+    assert any("前三张只是质量闸门，不是交付终点" in message for message in messages)
 
 
 def test_plan_wizard_collects_reference_image_choices(tmp_path: Path):

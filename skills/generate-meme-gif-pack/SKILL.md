@@ -67,6 +67,7 @@ If the user asks for 18 and wants WeChat upload, explain that WeChat albums use 
 - For API models that support transparent output, request an alpha-capable format such as PNG or WebP, for example with `background: "transparent"` and `output_format: "png"`.
 - Reject fake checkerboard transparency and visible separator lines. They are just pixels, not alpha transparency or valid motion-sheet structure.
 - Run `qc-sheet` and build/continuity QC on the first 3 generated keypose sheets before generating all 24. Regenerate anything that fails layout, transparency, edge-touch, bbox drift, loop closure, motion energy, prop position jump, prop lifecycle, face/head shape drift, or readability checks.
+- The first 3 are a QC checkpoint, not a stopping point. If the user requested a full pack, do not end the task after the first-3 preview; continue to the remaining prompts in the same workflow after QC passes.
 - For WeChat submission, use `--quality-mode submission --strict-qc`. Single-image `single_bounce` output is preview-only.
 - WeChat output must include numbered upload files and readable named GIF files.
 
@@ -124,7 +125,7 @@ For a reference image, add `--reference-image path/to/reference.png` and describ
    - After each generated image is available as a local file, run `accept-generated` so it lands at the planned raw filename.
    - Run `qc-sheet` on those first 3 accepted keypose sheets. Then run `build-preview --strict-continuity-qc --preview-count 3` so final animation continuity is checked before batch generation. Do not use full `build-pack` with only 3 sources; full builds refuse to reuse source images automatically. If a sheet fails, use its `regenerate_hint` from the plan and generate again.
    - If the first 3 look technically correct but not worth sending, revise their captions, visual gags, or motion plans before continuing. Technical pass does not override the sendability gate.
-   - Continue to the remaining 21 sheets only after the first 3 pass QC.
+   - Continue to the remaining 21 sheets only after the first 3 pass QC. Do not report the task as done at this checkpoint unless the user explicitly requested a first-3 preview only.
 
 ```bash
 python skills/generate-meme-gif-pack/scripts/meme_pack.py accept-generated \
@@ -164,7 +165,7 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py build-preview \
   --strict-continuity-qc
 ```
 
-Only continue after `output/preview-first-3/preview.html` looks sendable and stable. Full `build-pack` requires one accepted source image per sticker; it must not silently loop the first three images.
+Only continue after `output/preview-first-3/preview.html` looks sendable and stable. This preview is a checkpoint, not completion. For a full pack request, keep going in the same turn/workflow until every planned prompt has an accepted source image and full `build-pack` succeeds. Full `build-pack` requires one accepted source image per sticker; it must not silently loop the first three images.
 
 Optional static contact-sheet split for previews:
 

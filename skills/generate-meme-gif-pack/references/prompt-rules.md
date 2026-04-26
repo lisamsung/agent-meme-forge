@@ -36,6 +36,8 @@ Then run `meme_pack.py plan-pack` and use its `image_prompts` with built-in `ima
 
 A `2x2` source image is an intermediate raw keypose sheet, not the final deliverable. The final handoff should show `preview.html`, `named-gifs/*.gif`, and `wechat-submit/main/*.gif`; raw keypose PNGs are for QC and debugging only.
 
+The first 3 are a QC checkpoint, not a stopping point. For a full pack, the agent must continue to the remaining prompts in the same workflow after the first-3 preview passes QC, then run the full pack build.
+
 ## Raw Image Prompt Pattern
 
 Use this structure for each sticker:
@@ -178,6 +180,8 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py build-preview \
 ```
 
 If `image_gen` only returns a chat attachment, save/export it to a local file before running `accept-generated`; QC and build commands cannot read an unsaved attachment. If QC fails, regenerate with a stricter prompt: larger face, fewer props, more margin, same bounding box, same pixel scale, no checkerboard, no separator lines, pure `#FF00FF` background or verified real-alpha transparent PNG only.
+
+If the user requested a complete 16/24-pack, do not end the task after the first-3 preview. The preview only decides whether to continue, regenerate, or revise the plan; it is not the full pack deliverable.
 
 Transparency note:
 

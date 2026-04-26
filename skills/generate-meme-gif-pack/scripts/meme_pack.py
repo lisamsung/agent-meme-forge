@@ -1170,10 +1170,23 @@ def plan_pack(
             "index_file": f"{raw_output_dir}/generated-index.json",
             "blocked_without_local_file": True,
         },
+        "workflow_contract": {
+            "first_three_policy": "The first 3 are a QC checkpoint, not a stopping point.",
+            "continue_after_preview": "If the user requested a full pack, do not end the task after the first-3 preview; continue to the remaining prompts in the same workflow after QC passes.",
+            "completion_definition": f"Complete only when {pack_size} accepted raw images have been built into preview.html, named-gifs/*.gif, wechat-submit/main/*.gif, manifest.json, and qc_report.json.",
+            "allowed_stop_conditions": [
+                "user explicitly requested first-3 preview only",
+                "image_gen is unavailable in the current session",
+                "image_gen returned only unsaved attachments and the user must export local files",
+                "strict QC or continuity QC fails and regeneration is needed",
+                "the user explicitly pauses or changes the task",
+            ],
+        },
         "agent_instructions": [
             "MUST call built-in image_gen for the first 3 image_prompts before committing to all 24 when the current agent session exposes an image generation tool. Do not stop after writing the plan or tell the user to call image_gen manually unless the tool is unavailable. Save each raw no-text motion sheet exactly as raw_image_filename.",
             "After each image_gen result is saved/exported as a local image, run meme_pack.py accept-generated with the plan JSON, sticker index, generated image path, and raw output directory so QC/build-pack can find the exact planned filename.",
             f"Run meme_pack.py qc-sheet --source-mode {source_mode} --source-layout {source_layout} --quality-mode {quality_mode} on those first 3 accepted sheets and regenerate any fail or weak warning using regenerate_hint.",
+            "The first 3 are a QC checkpoint, not a stopping point. If the user requested a full pack, do not end the task after the first-3 preview; continue to the remaining prompts in the same workflow after QC passes.",
             "After the first 3 sheets pass QC, call image_gen once per remaining image_prompt to generate one no-text motion sheet per sticker.",
             f"Save raw generated no-text images using raw_image_filename under {raw_output_dir}; accept-generated writes generated-index.json as the handoff audit trail.",
             "Replace any weak joke before generation: every sticker must pass meme_quality_bar and image_prompts[].sendability_gate; if it is only cute or decorative, rewrite the caption, scene, visual gag, and motion.",
@@ -3261,6 +3274,7 @@ def _prompt_choice(
 def run_plan_wizard(input_fn=input, print_fn=print) -> dict:
     print_fn("Agent Meme Forge interactive plan wizard")
     print_fn("This wizard only writes the plan JSON. Generate the first 3 raw sheets with image_gen, accept each local image file, then run qc-sheet.")
+    print_fn("前三张只是质量闸门，不是交付终点；如果用户要完整包，前三张通过后必须继续生成剩余图片并跑 build-pack。")
     input_mode = _prompt_choice(
         "Step 1: choose the character source",
         ["text_concept", "reference_image"],
@@ -3347,7 +3361,7 @@ def run_plan_wizard(input_fn=input, print_fn=print) -> dict:
     )
     write_plan(output, plan)
     print_fn(f"Plan written: {output}")
-    print_fn("Next: 先生成前 3 张 image_gen keypose sheets, 用 accept-generated 落盘命名，再 run qc-sheet 和 continuity QC；通过后继续剩余图片。")
+    print_fn("Next: 先生成前 3 张 image_gen keypose sheets, 用 accept-generated 落盘命名，再 run qc-sheet 和 continuity QC；前三张只是质量闸门，不是交付终点，通过后继续剩余图片。")
     print_fn(plan["image_handoff"]["accept_generated_command"])
     print_fn(plan["processor_command"])
     return plan
