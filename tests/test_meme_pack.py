@@ -159,6 +159,7 @@ def test_plan_pack_builds_direct_text_image_prompts():
     assert "avoid flicker" in first_prompt.lower()
     assert "same silhouette and hand pose" in first_prompt
     assert "transparent png background" in first_prompt.lower()
+    assert "For Codex image_gen runs, prefer a pure solid #FF00FF background" in first_prompt
     assert "Frame 1" in first_prompt and "Frame 8" in first_prompt
     assert "Claude-inspired warm geometric AI assistant mascot" in first_prompt
     assert first_prompt_plan["meme_name"] == first_prompt_plan["name"]
@@ -595,6 +596,41 @@ def test_component_filter_removes_isolated_noise(tmp_path: Path):
     assert cleaned.getbbox() == (24, 20, 57, 59)
 
 
+def test_component_filter_removes_near_subject_fake_checkerboard_tiles():
+    meme_pack = load_module()
+    image = Image.new("RGBA", (128, 128), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    draw.rounded_rectangle((44, 36, 86, 94), radius=12, fill=(70, 132, 216, 255))
+    for y in range(30, 100, 14):
+        for x in range(18, 112, 14):
+            if 42 <= x <= 88 and 34 <= y <= 96:
+                continue
+            color = (238, 238, 238, 255) if ((x + y) // 14) % 2 else (204, 204, 204, 255)
+            draw.rectangle((x, y, x + 5, y + 5), fill=color)
+
+    cleaned, info = meme_pack.filter_subject_components(image, min_component_area=4, keep_distance=18)
+
+    assert cleaned.getpixel((18, 30))[3] == 0
+    assert cleaned.getpixel((110, 86))[3] == 0
+    assert cleaned.getpixel((64, 60))[3] == 255
+    assert info["removed_artifact_component_count"] > 0
+    assert info["removed_checkerboard_component_count"] > 0
+
+
+def test_component_filter_removes_thin_sheet_separator_lines():
+    meme_pack = load_module()
+    image = Image.new("RGBA", (128, 128), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    draw.rounded_rectangle((44, 42, 86, 98), radius=12, fill=(70, 132, 216, 255))
+    draw.rectangle((20, 28, 110, 30), fill=(126, 80, 34, 255))
+
+    cleaned, info = meme_pack.filter_subject_components(image, min_component_area=4, keep_distance=18)
+
+    assert cleaned.getpixel((60, 29))[3] == 0
+    assert cleaned.getpixel((64, 60))[3] == 255
+    assert info["removed_separator_line_count"] == 1
+
+
 def test_normalize_motion_frames_uses_common_scale(tmp_path: Path):
     meme_pack = load_module()
     frames = []
@@ -686,6 +722,55 @@ def test_qc_sheet_rejects_fake_checkerboard_transparency(tmp_path: Path):
 
     assert report["status"] == "fail"
     assert any("checkerboard" in error for error in report["errors"])
+
+
+def test_qc_sheet_rejects_near_subject_checkerboard_residue(tmp_path: Path):
+    meme_pack = load_module()
+    rows, cols = meme_pack.parse_sheet_layout("2x4")
+    cell = 96
+    sheet = Image.new("RGBA", (cols * cell, rows * cell), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(sheet)
+    for frame in range(rows * cols):
+        row = frame // cols
+        col = frame % cols
+        x = col * cell
+        y = row * cell
+        draw.rounded_rectangle((x + 32, y + 24, x + 64, y + 76), radius=10, fill=(54, 116, 220, 255))
+        for tile_y in range(y + 16, y + 82, 12):
+            for tile_x in range(x + 10, x + 86, 12):
+                if x + 28 <= tile_x <= x + 68 and y + 20 <= tile_y <= y + 80:
+                    continue
+                color = (238, 238, 238, 255) if ((tile_x + tile_y) // 12) % 2 else (204, 204, 204, 255)
+                draw.rectangle((tile_x, tile_y, tile_x + 4, tile_y + 4), fill=color)
+    path = tmp_path / "checker-residue.png"
+    sheet.save(path)
+
+    report = meme_pack.qc_sheet(path, source_layout="2x4", quality_mode="submission", strict=True)
+
+    assert report["status"] == "fail"
+    assert any("checkerboard residue" in error for error in report["errors"])
+
+
+def test_qc_sheet_rejects_sheet_separator_line_residue(tmp_path: Path):
+    meme_pack = load_module()
+    rows, cols = meme_pack.parse_sheet_layout("2x4")
+    cell = 96
+    sheet = Image.new("RGBA", (cols * cell, rows * cell), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(sheet)
+    for frame in range(rows * cols):
+        row = frame // cols
+        col = frame % cols
+        x = col * cell
+        y = row * cell
+        draw.rounded_rectangle((x + 32, y + 30, x + 64, y + 78), radius=10, fill=(54, 116, 220, 255))
+        draw.rectangle((x + 8, y + 18, x + 88, y + 20), fill=(126, 80, 34, 255))
+    path = tmp_path / "separator-residue.png"
+    sheet.save(path)
+
+    report = meme_pack.qc_sheet(path, source_layout="2x4", quality_mode="submission", strict=True)
+
+    assert report["status"] == "fail"
+    assert any("separator line" in error for error in report["errors"])
 
 
 def test_qc_sheet_rejects_edge_touch_in_strict_mode(tmp_path: Path):

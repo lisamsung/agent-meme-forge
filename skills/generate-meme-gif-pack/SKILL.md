@@ -54,9 +54,10 @@ If the user asks for 18 and wants WeChat upload, explain that WeChat albums use 
 - For exaggerated reactions, use `4x4`/16-frame sheets when the model can keep identity stable. The extra frames should create anticipation, pose change, overshoot, recovery, and loop smoothing, not 16 duplicate poses.
 - Timing defaults: 8-frame GIFs use about 170ms per frame; 16-frame GIFs use about 150ms per frame so the full loop is readable rather than rushed.
 - Micro-motion QC is stricter than normal action QC. If center drift is visible, regenerate; do not treat drifting across the cell as intentional motion.
-- Prefer transparent PNG background directly from the image interface when supported. ChatGPT Images can be asked for transparent background; API model support varies, and `gpt-image-2` should use solid flat `#FF00FF` fallback plus local cleanup because it does not support true transparent background.
+- For Codex `image_gen` motion sheets, prefer a pure solid `#FF00FF` background unless the tool is confirmed to export real alpha transparency to a local PNG. This avoids the common failure where the model draws a visible checkerboard instead of real transparency.
+- ChatGPT Images can be asked for transparent background; API model support varies, and `gpt-image-2` should use solid flat `#FF00FF` fallback plus local cleanup because it does not support true transparent background.
 - For API models that support transparent output, request an alpha-capable format such as PNG or WebP, for example with `background: "transparent"` and `output_format: "png"`.
-- Reject fake checkerboard transparency. It is just visible pixels, not alpha transparency.
+- Reject fake checkerboard transparency and visible separator lines. They are just pixels, not alpha transparency or valid motion-sheet structure.
 - Run `qc-sheet` on the first 3 generated sheets before generating all 24. Regenerate anything that fails layout, transparency, edge-touch, bbox drift, or readability checks.
 - For WeChat submission, use `--quality-mode submission --strict-qc`. Single-image `single_bounce` output is preview-only.
 - WeChat output must include numbered upload files and readable named GIF files.
@@ -107,7 +108,7 @@ For a reference image, add `--reference-image path/to/reference.png` and describ
 - Default quality path: one `2x4` no-text motion sheet per sticker. Use `4x4` for selected stickers that need more dramatic body language or smoother transitions.
 - Each sheet frame should be a real acting beat: start, anticipation, action, escalation, peak reaction, rebound, settle, loopable return. For 16-frame sheets, include in-between frames between those beats so the motion reads as continuous. For quiet reactions, use medium-readable eyelid/pupil/head/glasses/shoulder changes instead of big pose jumps or nearly invisible motion.
    - For a fast first pass only, one 4x6 contact sheet of static poses is acceptable; split it with `split-sheet` before `build-pack`.
-   - Ask for transparent PNG background first in ChatGPT Images or any API model that supports transparency. If using `gpt-image-2` or another model/tool that cannot output true alpha, use a solid flat `#FF00FF` background; the processor removes it locally.
+   - For Codex `image_gen`, ask for a pure solid `#FF00FF` background by default. Use transparent PNG only when the current tool can prove it exports real alpha to disk. If using ChatGPT Images directly or an API model that supports transparency, transparent PNG is acceptable; if using `gpt-image-2` or another model/tool that cannot output true alpha, use a solid flat `#FF00FF` background and let the processor remove it locally.
    - After each generated image is available as a local file, run `accept-generated` so it lands at the planned raw filename.
    - Run `qc-sheet` on those first 3 accepted motion sheets. If a sheet fails, use its `regenerate_hint` from the plan and generate again.
    - If the first 3 look technically correct but not worth sending, revise their captions, visual gags, or motion plans before continuing. Technical pass does not override the sendability gate.

@@ -248,7 +248,7 @@
             <h2>AI Mascot Sample</h2>
             <p>
               当前推荐链路会先用 text_concept 生成原创 AI 吉祥物的 2x4 八帧 motion-sheet 提示词，
-              再调用 image_gen 为每个表情产出透明优先的真实动作帧。本地脚本会先跑 qc-sheet，
+              再调用 image_gen 为每个表情产出纯 #FF00FF 或真 alpha 的真实动作帧。本地脚本会先跑 qc-sheet，
               再切图、统一尺度、加中文梗、压成微信规格 GIF。
             </p>
             <p>
@@ -290,7 +290,7 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
   --quality-mode submission \
   --output output/ai-research-plan.json
 
-# Use the first 3 image_prompts with Codex image_gen, save accepted transparent 2x4 or 4x4 sheets to raw-frames/.
+# Use the first 3 image_prompts with Codex image_gen; prefer pure #FF00FF sheets unless the exported PNG has verified real alpha.
 python skills/generate-meme-gif-pack/scripts/meme_pack.py qc-sheet \
   --input raw-frames/01-收到离线-2x4.png \
   --source-layout 2x4 \

@@ -65,7 +65,7 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py accept-generated \
   --source-dir output/raw-frames/AgentMemePack
 ```
 
-Save accepted transparent-background raw `2x4` motion sheets into `raw-frames/`. Use `4x4` for selected stickers that need 16-frame smoother motion or more exaggerated pose acting; the manifest records the final GIF frame count after size compression. In ChatGPT Images, ask for transparent background directly. In the API, use transparent output only with models and alpha formats that support it, such as PNG/WebP via `output_format`; for `gpt-image-2`, use a solid `#FF00FF` fallback background and let the processor remove it. Static 4x6 contact sheets are useful only for previews; split them first if you use that lower-quality path:
+Save accepted raw `2x4` motion sheets into `raw-frames/`. Use `4x4` for selected stickers that need 16-frame smoother motion or more exaggerated pose acting; the manifest records the final GIF frame count after size compression. For Codex `image_gen`, prefer a pure solid `#FF00FF` background unless you have verified that the exported PNG has real alpha. In ChatGPT Images, transparent background is fine after QC verifies it is real alpha. In the API, use transparent output only with models and alpha formats that support it, such as PNG/WebP via `output_format`; for `gpt-image-2`, use a solid `#FF00FF` fallback background and let the processor remove it. Static 4x6 contact sheets are useful only for previews; split them first if you use that lower-quality path:
 
 ```bash
 python skills/generate-meme-gif-pack/scripts/meme_pack.py qc-sheet \

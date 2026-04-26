@@ -81,11 +81,11 @@ The high-quality path uses semantic motion sheets, adapted from `generate2dsprit
 - no camera cuts, no sudden crop changes, no random new props, and no teleporting hands
 - the entire character, prop, effect, sweat drop, paper stack, chart, laptop, or glow must fit fully inside each cell
 - leave clear margin on all four sides; nothing may cross a cell edge
-- prefer a real transparent PNG background directly from the image interface when supported
-- ChatGPT Images can be asked for transparent background in the prompt
+- for Codex `image_gen` motion sheets, prefer a pure solid `#FF00FF` background unless the tool is confirmed to export real alpha transparency to a local PNG
+- ChatGPT Images can be asked for transparent PNG background in the prompt, but verify that the exported file has real alpha rather than a visible checkerboard
 - for API models that support transparent output, use an alpha-capable `output_format` such as `png` or `webp` together with `background: "transparent"`
 - `gpt-image-2` does not support true transparent backgrounds, so use a 100% solid flat `#FF00FF` background and let local processing remove it
-- reject fake checkerboard transparency patterns; a checkerboard drawn into the pixels is not a transparent background
+- reject fake checkerboard transparency patterns and separator lines; a checkerboard drawn into the pixels is not a transparent background
 - each frame should be a different acting beat, not a random new illustration
 
 ## Motion Sheet QC Rules
@@ -96,6 +96,8 @@ The processor now treats QC as a gate, not a suggestion. A raw sheet should pass
 - every cell has a readable subject
 - no visible checkerboard background
 - true alpha background, or a clean solid `#FF00FF` chroma key fallback
+- no fake checkerboard residue near the subject after cleanup
+- no sheet separator line residue after cleanup
 - no subject, prop, paper, glow, sweat drop, or effect touches a cell edge
 - bbox center, width, height, and alpha area stay within a stable range across frames
 - no isolated edge debris or tiny leftover color noise after background removal
@@ -119,11 +121,12 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py qc-sheet \
   --output output/qc/01-qc.json
 ```
 
-If `image_gen` only returns a chat attachment, save/export it to a local file before running `accept-generated`; QC and build commands cannot read an unsaved attachment. If QC fails, regenerate with a stricter prompt: larger face, fewer props, more margin, same bounding box, same pixel scale, no checkerboard, transparent PNG or pure `#FF00FF` only.
+If `image_gen` only returns a chat attachment, save/export it to a local file before running `accept-generated`; QC and build commands cannot read an unsaved attachment. If QC fails, regenerate with a stricter prompt: larger face, fewer props, more margin, same bounding box, same pixel scale, no checkerboard, no separator lines, pure `#FF00FF` background or verified real-alpha transparent PNG only.
 
 Transparency note:
 
-- ChatGPT Images can be prompted to make the background transparent, so prefer that path in the ChatGPT UI.
+- Codex `image_gen` should default to pure solid `#FF00FF` for motion sheets unless the exported file is known to contain real alpha.
+- ChatGPT Images can be prompted to make the background transparent, but the saved file still needs QC verification because visible checkerboard pixels are not alpha.
 - API behavior is model-specific. For API models with transparent-background support, request `background: "transparent"` and an alpha-capable `output_format`, normally `png` or `webp`.
 - `gpt-image-2` does not support `background: "transparent"`; for that model, generate a pure white or pure color background, preferably solid `#FF00FF`, then let the local processor remove it.
 - Do not accept visible checkerboard pixels as a transparency substitute.
@@ -152,7 +155,7 @@ Create one raw no-text 2x4 motion sheet for a Chinese WeChat animated meme GIF s
 Character card: text_concept warm geometric AI assistant mascot with cream body, coral accents, friendly abstract face, tiny paper-stack anxiety, original character, no official logo. Keep the same head shape, color anchors, body proportions, line weight, and facial feature logic across every sticker.
 Persona context: 科研打工人; useful visual cues: papers, literature review, group meeting pressure, charts, revision anxiety.
 Meme item: 文献山. Chat send scenario: literature keeps multiplying. The final Chinese caption will be added later by a local processor; do not draw any text.
-Motion sheet rules: exactly 8 equal cells in a 2x4 grid, no borders, same character identity, same bounding box, same pixel scale, transparent PNG background preferred, #FF00FF fallback only if transparency is not available, no fake checkerboard pattern, nothing crosses a cell edge.
+Motion sheet rules: exactly 8 equal cells in a 2x4 grid, no borders, same character identity, same bounding box, same pixel scale. For Codex image_gen use a pure solid #FF00FF background unless verified real-alpha PNG export is available; no fake checkerboard pattern, no separator lines, nothing crosses a cell edge.
 Frame 1: the mascot notices one small paper stack, worried eyes.
 Frame 2: the mascot reaches toward the stack with hesitation.
 Frame 3: the stack grows quickly around the mascot.
@@ -175,7 +178,7 @@ Hard negative rules: no text, no words, no Chinese characters, no Latin letters,
 - If identity drifts between frames, regenerate with stricter same bounding box / same pixel scale rules.
 - If speed matters, ask `image_gen` for an exact `4 columns by 6 rows` contact sheet of static poses, then run `meme_pack.py split-sheet --rows 6 --cols 4`. Keep generous whitespace so each crop contains one centered pose. This is a preview path, not the best final-quality path.
 - `build-pack` reads motion sheets with `--source-layout 2x4`, `4x4`, `1x8`, `1x4`, `2x2`, or `2x3`; single static sources fall back to a simple bounce loop only in `preview` mode.
-- WeChat submission should use `build-pack --quality-mode submission --strict-qc`; this rejects `single_bounce`, fake checkerboard backgrounds, edge touch, excessive bbox drift, and weak frame sheets.
+- WeChat submission should use `build-pack --quality-mode submission --strict-qc`; this rejects `single_bounce`, fake checkerboard backgrounds or residue, separator line residue, edge touch, excessive bbox drift, and weak frame sheets.
 
 ## Rejection Rules
 

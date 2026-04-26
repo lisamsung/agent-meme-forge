@@ -486,7 +486,8 @@ def sheet_prompt_rules(layout: str) -> str:
         "The entire subject and any prop or effect must fit fully inside each cell with clear margin; nothing may cross a cell edge. "
         "Make the frames feel like smooth in-between animation, not eight unrelated drawings: no camera cuts, no sudden pose swaps, no random new props, and keep the head anchor, shoulder line, outfit, and crop nearly fixed unless the frame plan explicitly moves them. "
         f"{extra_motion_rule}"
-        "Preferred background: real transparent PNG background with no visible backdrop when the current image interface supports transparency. "
+        "For Codex image_gen runs, prefer a pure solid #FF00FF background unless the tool is confirmed to export real alpha transparency to a local PNG file. "
+        "If using a confirmed alpha-capable image interface, transparent PNG background is acceptable; verify it is real alpha, not visible pixels. "
         "If the image tool or API model cannot output true alpha transparency, use a 100% solid flat #FF00FF magenta background for local chroma-key removal. "
         "Never use gradients, shadows, colored washes, textured backgrounds, or fake checkerboard transparency behind the cells."
     )
@@ -1104,6 +1105,40 @@ def _bbox_distance(a: tuple[int, int, int, int], b: tuple[int, int, int, int]) -
     return max(dx, dy)
 
 
+def _component_artifact_reason(rgba: Image.Image, component: dict[str, object]) -> str:
+    bbox = tuple(component["bbox"])
+    x0, y0, x1, y1 = bbox
+    width = x1 - x0
+    height = y1 - y0
+    area = int(component["area"])
+    if area <= 0:
+        return ""
+
+    if height <= max(3, int(rgba.height * 0.018)) and width >= max(36, int(rgba.width * 0.28)):
+        return "separator_line"
+    if width <= max(3, int(rgba.width * 0.018)) and height >= max(36, int(rgba.height * 0.28)):
+        return "separator_line"
+
+    pixels = rgba.load()
+    neutral_grid_pixels = 0
+    for x, y in component["pixels"]:
+        red, green, blue, alpha = pixels[x, y]
+        if alpha == 0:
+            continue
+        spread = max(red, green, blue) - min(red, green, blue)
+        is_checker_gray = spread <= 14 and (
+            (196 <= red <= 216 and 196 <= green <= 216 and 196 <= blue <= 216)
+            or (230 <= red <= 247 and 230 <= green <= 247 and 230 <= blue <= 247)
+        )
+        if is_checker_gray:
+            neutral_grid_pixels += 1
+
+    small_component_limit = max(480, int(rgba.width * rgba.height * 0.012))
+    if area <= small_component_limit and neutral_grid_pixels / area >= 0.72:
+        return "checkerboard"
+    return ""
+
+
 def filter_subject_components(
     image: Image.Image,
     min_component_area: int = 8,
@@ -1111,9 +1146,24 @@ def filter_subject_components(
 ) -> tuple[Image.Image, dict[str, object]]:
     rgba = image.convert("RGBA")
     components = connected_components(rgba, min_area=1)
-    kept = [component for component in components if int(component["area"]) >= min_component_area]
+    sized_components = [component for component in components if int(component["area"]) >= min_component_area]
+    artifact_counts = {"checkerboard": 0, "separator_line": 0}
+    kept = []
+    for component in sized_components:
+        reason = _component_artifact_reason(rgba, component)
+        if reason:
+            artifact_counts[reason] += 1
+            continue
+        kept.append(component)
     if not kept:
-        return rgba, {"component_count": len(components), "kept_component_count": 0, "removed_component_count": len(components)}
+        return Image.new("RGBA", rgba.size, (0, 0, 0, 0)), {
+            "component_count": len(components),
+            "kept_component_count": 0,
+            "removed_component_count": len(components),
+            "removed_artifact_component_count": sum(artifact_counts.values()),
+            "removed_checkerboard_component_count": artifact_counts["checkerboard"],
+            "removed_separator_line_count": artifact_counts["separator_line"],
+        }
 
     largest = kept[0]
     largest_bbox = tuple(largest["bbox"])
@@ -1132,6 +1182,9 @@ def filter_subject_components(
         "component_count": len(components),
         "kept_component_count": len(keep_components),
         "removed_component_count": len(components) - len(keep_components),
+        "removed_artifact_component_count": sum(artifact_counts.values()),
+        "removed_checkerboard_component_count": artifact_counts["checkerboard"],
+        "removed_separator_line_count": artifact_counts["separator_line"],
         "largest_component_area": int(largest["area"]),
         "largest_component_bbox": list(largest_bbox),
     }
@@ -1218,6 +1271,14 @@ def analyze_frames_for_qc(
             **component_info,
         }
         frame_reports.append(frame_report)
+        checkerboard_residue_count = int(component_info.get("removed_checkerboard_component_count", 0))
+        separator_line_count = int(component_info.get("removed_separator_line_count", 0))
+        if checkerboard_residue_count >= 4:
+            warnings.append(
+                f"frame {index} has fake checkerboard residue near the subject; regenerate with true alpha or pure #FF00FF"
+            )
+        if separator_line_count:
+            warnings.append(f"frame {index} has sheet separator line residue; regenerate without panel borders or lines")
         if not bbox or area_ratio < float(limits["min_area_ratio"]):
             errors.append(f"frame {index} has no readable subject or subject is too small")
         if touches_edge:

@@ -129,13 +129,14 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py accept-generated \
 
 如果当前 `image_gen` 只在聊天里返回附件、没有本地路径，先把附件保存到本机，再运行上面的命令；本地处理器不能直接读取未保存的聊天附件。
 
-优先要求透明 PNG 背景，但要区分工具入口：
+背景策略要区分工具入口，不能只写“透明背景”就相信它是真的透明：
 
-- ChatGPT 界面的 ChatGPT Images 可以直接要求“透明背景”，优先试这条路径。
+- Codex `image_gen` 生成 motion sheet 时，默认要求纯色 `#FF00FF` 背景，除非你确认导出的本地 PNG 真有 alpha 通道。这样最稳，避免模型把棋盘格画进像素里。
+- ChatGPT 界面的 ChatGPT Images 可以直接要求“透明背景”，但保存后仍然要跑 QC 确认真 alpha。
 - API 侧要看具体模型。支持透明背景的 GPT image 模型需要配合 alpha 格式，例如 `background: "transparent"` 加 `output_format: "png"` 或 `webp`。
 - `gpt-image-2` 目前不支持真正透明背景，不能传 `background: "transparent"`；使用它时要生成白色或纯色不透明背景，推荐纯 `#FF00FF`，再由本地处理器抠图。
 
-注意棋盘格不等于透明背景，如果模型把棋盘格画进像素里，也要退回重生。质量不行就重生：角色太小、画了文字、像官方 logo、表情不够强、道具太细、看不出发送场景、网格数量不对、前后帧角色比例乱跳、道具出格、透明边缘有明显红/粉残留，都应该退回。
+注意棋盘格不等于透明背景，如果模型把棋盘格画进像素里，或者 motion sheet 出现可见分隔线，也要退回重生。质量不行就重生：角色太小、画了文字、像官方 logo、表情不够强、道具太细、看不出发送场景、网格数量不对、前后帧角色比例乱跳、道具出格、透明边缘有明显红/粉残留，都应该退回。
 
 如果为了快速试效果，先让 `image_gen` 生成一张 `4x6` 静态 contact sheet，可以切成 24 张单姿态原图。注意这只是预览路径，最终质量不如每个表情单独 `2x4` motion sheet：
 
@@ -159,7 +160,7 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py qc-sheet \
   --output output/qc/01-qc.json
 ```
 
-失败时不要硬凑，用计划里的 `regenerate_hint` 重生。常见失败原因：画了棋盘格、角色碰到格子边缘、某一帧突然变大、角色太小、背景不是透明或纯 `#FF00FF`。
+失败时不要硬凑，用计划里的 `regenerate_hint` 重生。常见失败原因：画了棋盘格或棋盘格残留、出现 sheet 分隔线、角色碰到格子边缘、某一帧突然变大、角色太小、背景不是透明或纯 `#FF00FF`。
 
 ### 5. 构建微信 GIF 包
 
@@ -225,7 +226,7 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
 - `source_layout` 投稿默认应是 `2x4`，`source_frame_count` 应是 `8`；高表现力路线可以是 `4x4` / `16`。
 - `gif_frame_count` 应尽量等于 `source_frame_count`。如果 GIF 太大，处理器会降到 12/8/6/4 帧以满足微信大小限制，manifest 会记录最终帧数。
 - 默认帧时长：8 帧约 `170ms/帧`，16 帧约 `150ms/帧`。如果看起来仍然跳，优先重生更连贯的 motion sheet，而不是只继续放慢。
-- `background_mode` 应是 `transparent` 或 `magenta`。
+- `background_mode` 应是 `transparent` 或 `magenta`，且 `qc_warnings`/`qc_errors` 里不能有 `checkerboard residue` 或 `separator line residue`。
 - `edge_touch` 应是 `false`，`bbox_drift.size_ratio` 不应超阈值。
 - 打开 `named-gifs/` 抽查至少 3 张：动作能读、文字不挡脸、边缘没有粉色残留。
 
