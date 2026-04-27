@@ -17,6 +17,13 @@ Every planned sticker now carries a sendability gate: reuse trigger, emotional v
 - Upload-safe numbered files in `wechat-submit/`.
 - Thumbnails, cover, icon, banner, `manifest.json`, and `manifest.csv`.
 
+## WeChat Submission Gotchas
+
+- `版权归属` must be the actual rights-holder/account/legal subject name. Do not submit a generic `原创` value.
+- `角色/内容` should describe the visible subject, not the drawing style. A stylized female person/photo reference should use `人物角色 - 女人`; reserve `动漫/漫画/卡通人物` for genuinely original comic/cartoon characters.
+- If `接受赞赏` is enabled, prepare a 5-15 character reward prompt, a `750x560` reward guide image, and a `750x750` reward thanks image before submitting.
+- After a rejection, follow the rejection page exactly, save the corrected metadata, confirm the preview changed, then resubmit.
+
 ## Install
 
 ```bash

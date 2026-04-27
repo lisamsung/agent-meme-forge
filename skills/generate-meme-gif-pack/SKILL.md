@@ -70,6 +70,8 @@ If the user asks for 18 and wants WeChat upload, explain that WeChat albums use 
 - The first 3 are a QC checkpoint, not a stopping point. If the user requested a full pack, do not end the task after the first-3 preview; continue to the remaining prompts in the same workflow after QC passes.
 - For WeChat submission, use `--quality-mode submission --strict-qc`. Single-image `single_bounce` output is preview-only.
 - WeChat output must include numbered upload files and readable named GIF files.
+- WeChat platform metadata is part of the submission, not cleanup. Before clicking final submit, verify the fields against `references/wechat-spec.md`: `版权归属` must be the actual rights-holder/platform account/legal subject name and must not be a generic claim such as `原创`; `角色/内容` must classify the visible subject, so a stylized real woman should use `人物角色 - 女人`, not `动漫/漫画/卡通人物`; if accepting `表情赞赏`, fill `赞赏引导语` and upload `赞赏引导图` plus `赞赏致谢图`.
+- If WeChat rejects the pack, read the rejection page first and treat its exact wording as authoritative. Fix the rejected metadata directly, save, and only then resubmit; do not regenerate art unless the rejection points to the images themselves.
 
 ## Workflow
 
@@ -205,6 +207,11 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py build-pack \
    - Inspect `qc_report.json`: every item should be `pass` for submission, and every item’s `continuity_qc_status` should be `pass`; `prop_position_jump`, `prop_area_jump`, `face_shape_drift_score`, and `max_head_center_step_px` should stay below the template thresholds.
    - Reject weak jokes. Replace any entry that is only decorative or has no obvious send scenario.
    - Reject any GIF that is visually polished but not useful as a chat reply.
+8. Optional WeChat platform upload/submission:
+   - Fill `版权归属` with the copyright attribution subject's name. Do not write only `原创`; WeChat may reject that with `请直接填写版权归属主体的名称`.
+   - For a pack based on a real or portrait-like female subject, choose `角色/内容` as `人物角色 - 女人`. Use `动漫/漫画/卡通人物` only when the subject is truly an original comic/cartoon character rather than a stylized person.
+   - If the user wants to accept rewards, check `接受赞赏`, write a 5-15 character `赞赏引导语`, then upload `赞赏引导图` (`750x560`) and `赞赏致谢图` (`750x750`) before saving/submitting.
+   - After a rejection, fix only the fields named by the rejection unless the page exposes another validation error. Save first, confirm the preview metadata changed, then submit again.
 
 ## Output
 
@@ -218,6 +225,8 @@ output/my-pack/
   wechat-submit/cover.png
   wechat-submit/icon.png
   wechat-submit/banner.png
+  wechat-submit/reward-guide.png    # optional when accepting rewards
+  wechat-submit/reward-thanks.png   # optional when accepting rewards
   manifest.json
   manifest.csv
   qc_report.json

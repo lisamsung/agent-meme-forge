@@ -65,6 +65,25 @@ def test_references_cover_wechat_prompt_persona_and_humor():
         assert len(text) > 300
 
 
+def test_wechat_submission_review_pitfalls_are_documented():
+    skill_text = SKILL.read_text(encoding="utf-8")
+    spec_text = (REFERENCES / "wechat-spec.md").read_text(encoding="utf-8")
+    combined = skill_text + "\n" + spec_text
+
+    assert "版权归属" in combined
+    assert "版权归属主体" in combined
+    assert "不要写" in combined and "原创" in combined
+    assert "角色/内容" in combined
+    assert "人物角色 - 女人" in combined
+    assert "动漫/漫画/卡通人物" in combined
+    assert "接受赞赏" in combined
+    assert "赞赏引导语" in combined
+    assert "赞赏引导图" in combined
+    assert "赞赏致谢图" in combined
+    assert "750x560" in combined
+    assert "750x750" in combined
+
+
 def test_prompt_rules_support_direct_text_generation():
     text = (REFERENCES / "prompt-rules.md").read_text(encoding="utf-8")
 
