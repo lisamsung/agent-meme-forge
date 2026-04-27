@@ -32,7 +32,7 @@ Infer only after the user gives a minimal request such as “做科研打工人�
 - `keypose_layout`: default `2x2`; also supports `1x4`. This is the preferred raw image layout for submission.
 - `render_frame_count`: default `16`; the local processor renders deterministic holds, anticipation, rebound, and loop closure from the key poses.
 - `animation_layout`: legacy `motion_sheet` layout, default `2x4`; use `4x4` only when intentionally asking image_gen to draw every frame.
-- `quality_mode`: default `submission`; also `standard` or `preview`. Submission requires strict QC, real `2x4` or `4x4` sheets, and no single-image bounce fallback.
+- `quality_mode`: default `submission`; also `standard` or `preview`. Submission requires strict QC, real `2x2`/`1x4` keypose sheets by default, or explicit expert `2x4`/`4x4` motion sheets, and no single-image bounce fallback.
 
 If the user asks for 18 and wants WeChat upload, explain that WeChat albums use 16 or 24, then default to 24 unless they explicitly switch to `self_use`.
 
@@ -66,7 +66,7 @@ If the user asks for 18 and wants WeChat upload, explain that WeChat albums use 
 - ChatGPT Images can be asked for transparent background; API model support varies, and `gpt-image-2` should use solid flat `#FF00FF` fallback plus local cleanup because it does not support true transparent background.
 - For API models that support transparent output, request an alpha-capable format such as PNG or WebP, for example with `background: "transparent"` and `output_format: "png"`.
 - Reject fake checkerboard transparency and visible separator lines. They are just pixels, not alpha transparency or valid motion-sheet structure.
-- Run `qc-sheet` and build/continuity QC on the first 3 generated keypose sheets before generating all 24. Regenerate anything that fails layout, transparency, edge-touch, bbox drift, loop closure, motion energy, prop position jump, prop lifecycle, face/head shape drift, or readability checks.
+- Run `qc-sheet` and build/continuity QC on the first 3 generated keypose sheets before generating the full planned pack. Regenerate anything that fails layout, transparency, edge-touch, bbox drift, loop closure, motion energy, prop position jump, prop lifecycle, face/head shape drift, or readability checks.
 - The first 3 are a QC checkpoint, not a stopping point. If the user requested a full pack, do not end the task after the first-3 preview; continue to the remaining prompts in the same workflow after QC passes.
 - For WeChat submission, use `--quality-mode submission --strict-qc`. Single-image `single_bounce` output is preview-only.
 - WeChat output must include numbered upload files and readable named GIF files.
@@ -114,7 +114,7 @@ For a reference image, add `--reference-image path/to/reference.png` and describ
    - 8 persona-specific jokes.
    - 4 reusable filler reactions.
 5. Generate and QC raw images:
-   - MUST call built-in `image_gen` for the first 3 generated `image_prompts`, not all 24 at once, when the tool is available.
+   - MUST call built-in `image_gen` for the first 3 generated `image_prompts`, not every planned prompt at once, when the tool is available.
    - Do not stop after writing the plan; the plan is only an intermediate artifact.
    - Default quality path: one `2x2` no-text keypose sheet per sticker. The local processor renders the final 16-frame loop from a motion template such as `soul_offline`, `loading_loop`, or `pretend_understand`.
    - The processor adds template-level comic effects locally rather than asking image_gen to invent them. Keep the raw keyposes clean; let local rendering add soul puff, loading dots, sweat drops, or awkward lines across multiple frames.
@@ -125,7 +125,7 @@ For a reference image, add `--reference-image path/to/reference.png` and describ
    - After each generated image is available as a local file, run `accept-generated` so it lands at the planned raw filename.
    - Run `qc-sheet` on those first 3 accepted keypose sheets. Then run `build-preview --strict-continuity-qc --preview-count 3` so final animation continuity is checked before batch generation. Do not use full `build-pack` with only 3 sources; full builds refuse to reuse source images automatically. If a sheet fails, use its `regenerate_hint` from the plan and generate again.
    - If the first 3 look technically correct but not worth sending, revise their captions, visual gags, or motion plans before continuing. Technical pass does not override the sendability gate.
-   - Continue to the remaining 21 sheets only after the first 3 pass QC. Do not report the task as done at this checkpoint unless the user explicitly requested a first-3 preview only.
+   - Continue to the remaining planned sheets only after the first 3 pass QC. Do not report the task as done at this checkpoint unless the user explicitly requested a first-3 preview only.
 
 ```bash
 python skills/generate-meme-gif-pack/scripts/meme_pack.py accept-generated \

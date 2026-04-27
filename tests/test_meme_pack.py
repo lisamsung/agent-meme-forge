@@ -230,6 +230,28 @@ def test_plan_pack_builds_direct_text_image_prompts():
     assert "generated-index.json" in plan["image_handoff"]["index_file"]
 
 
+def test_plan_pack_workflow_contract_respects_16_pack_size():
+    meme_pack = load_module()
+
+    plan = meme_pack.plan_pack(
+        subject="round mascot",
+        persona="码农",
+        style="clean-sticker",
+        pack_size=16,
+        mode="wechat",
+        pack_name="Sixteen Pack",
+    )
+
+    instructions = " ".join(plan["agent_instructions"])
+    allowed_stops = " ".join(plan["workflow_contract"]["allowed_stop_conditions"])
+    assert "all 24" not in instructions
+    assert "remaining 21" not in instructions
+    assert "all planned image_prompts" in instructions
+    assert "Complete only when 16 accepted raw images" in plan["workflow_contract"]["completion_definition"]
+    assert "strict QC or continuity QC fails and regeneration is needed" not in allowed_stops
+    assert "fails repeatedly after regeneration attempts" in allowed_stops
+
+
 def test_plan_pack_writes_shell_safe_commands_and_handoff():
     meme_pack = load_module()
 
@@ -855,6 +877,24 @@ def test_qc_sheet_passes_clean_magenta_2x4_motion_sheet(tmp_path: Path):
     assert report["bbox_drift"]["center_ratio"] < 0.2
 
 
+def test_qc_sheet_passes_clean_green_ai_studio_keypose_sheet(tmp_path: Path):
+    meme_pack = load_module()
+    sheet = make_single_motion_sheet(tmp_path, "2x2", background=(0, 255, 0, 255))
+
+    report = meme_pack.qc_sheet(
+        sheet,
+        source_mode="keyposes",
+        source_layout="2x2",
+        quality_mode="submission",
+        strict=True,
+    )
+    cleaned = meme_pack.clean_generated_frame_background(Image.open(sheet))
+
+    assert report["status"] == "pass"
+    assert report["background_mode"] == "green"
+    assert cleaned.getpixel((4, 4))[3] == 0
+
+
 def test_qc_sheet_allows_clean_4x4_submission_motion_sheet(tmp_path: Path):
     meme_pack = load_module()
     sheet = make_single_motion_sheet(tmp_path, "4x4")
@@ -884,7 +924,7 @@ def test_qc_sheet_warns_on_solid_light_background_for_submission(tmp_path: Path)
 
     assert report["status"] == "fail"
     assert report["background_mode"] == "solid_light"
-    assert any("true alpha or pure #FF00FF" in error for error in report["errors"])
+    assert any("true alpha, pure #FF00FF, or pure #00FF00" in error for error in report["errors"])
 
 
 def test_component_filter_removes_isolated_noise(tmp_path: Path):

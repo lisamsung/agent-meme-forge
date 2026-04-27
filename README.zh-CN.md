@@ -155,7 +155,7 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py split-sheet \
 
 ### 4. 先跑 QC
 
-投稿模式先验收前 3 张，过了再继续生成剩余 21 张：
+投稿模式先验收前 3 张，过了再继续生成剩余计划图片：
 
 ```bash
 python skills/generate-meme-gif-pack/scripts/meme_pack.py qc-sheet \
@@ -189,7 +189,7 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py build-preview \
   --strict-continuity-qc
 ```
 
-打开 `output/preview-first-3/preview.html`，重点看动作是否连贯、角色是否漂移、文案是否想发。前三张只是质量闸门，不是交付终点；如果用户要完整包，通过后必须继续生成剩余 21 张并跑完整 `build-pack`。
+打开 `output/preview-first-3/preview.html`，重点看动作是否连贯、角色是否漂移、文案是否想发。前三张只是质量闸门，不是交付终点；如果用户要完整包，通过后必须继续生成剩余计划图片并跑完整 `build-pack`。
 
 ### 6. 构建微信 GIF 包
 

@@ -11,7 +11,7 @@ This skill targets WeChat Sticker Open Platform album uploads, not ordinary publ
 - Album icon PNG: one `50x50`, transparent background, below `30KB`.
 - Cover PNG: one `240x240`, transparent background, below `80KB`.
 - Detail banner PNG: one `750x400`, below `80KB`, no text.
-- Submission quality mode: `--quality-mode submission --strict-qc`, defaulting to real `2x4` eight-frame motion sheets. Use `4x4` sixteen-frame sheets for selected high-performance stickers when continuity or pose acting matters and the final GIF still stays below the size limit.
+- Submission quality mode: `--quality-mode submission --strict-qc`, defaulting to real `2x2` keypose sheets rendered locally into 16-frame GIFs. Use `2x4` or `4x4` motion sheets only in explicit expert mode when keypose rendering cannot express the action and the final GIF still stays below the size limit.
 
 ## Practical Constraints
 

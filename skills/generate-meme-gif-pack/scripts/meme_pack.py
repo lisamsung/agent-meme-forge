@@ -1178,12 +1178,12 @@ def plan_pack(
                 "user explicitly requested first-3 preview only",
                 "image_gen is unavailable in the current session",
                 "image_gen returned only unsaved attachments and the user must export local files",
-                "strict QC or continuity QC fails and regeneration is needed",
+                "strict QC or continuity QC fails repeatedly after regeneration attempts and user input is needed",
                 "the user explicitly pauses or changes the task",
             ],
         },
         "agent_instructions": [
-            "MUST call built-in image_gen for the first 3 image_prompts before committing to all 24 when the current agent session exposes an image generation tool. Do not stop after writing the plan or tell the user to call image_gen manually unless the tool is unavailable. Save each raw no-text motion sheet exactly as raw_image_filename.",
+            "MUST call built-in image_gen for the first 3 image_prompts before committing to all planned image_prompts when the current agent session exposes an image generation tool. Do not stop after writing the plan or tell the user to call image_gen manually unless the tool is unavailable. Save each raw no-text motion sheet exactly as raw_image_filename.",
             "After each image_gen result is saved/exported as a local image, run meme_pack.py accept-generated with the plan JSON, sticker index, generated image path, and raw output directory so QC/build-pack can find the exact planned filename.",
             f"Run meme_pack.py qc-sheet --source-mode {source_mode} --source-layout {source_layout} --quality-mode {quality_mode} on those first 3 accepted sheets and regenerate any fail or weak warning using regenerate_hint.",
             "The first 3 are a QC checkpoint, not a stopping point. If the user requested a full pack, do not end the task after the first-3 preview; continue to the remaining prompts in the same workflow after QC passes.",
@@ -1407,7 +1407,8 @@ def remove_chroma_background(image: Image.Image, color: tuple[int, int, int] = (
             and abs(blue - target_blue) <= tolerance
         )
         generated_magenta = red >= 210 and blue >= 190 and green <= 90 and abs(red - blue) <= 90
-        if alpha and (exact_match or generated_magenta):
+        generated_green = green >= 210 and red <= 90 and blue <= 90
+        if alpha and (exact_match or generated_magenta or generated_green):
             pixels.append((red, green, blue, 0))
         else:
             spill_delta = min(red, blue) - green
@@ -1437,6 +1438,10 @@ def clean_generated_frame_background(image: Image.Image) -> Image.Image:
 
 def _magenta_distance(red: int, green: int, blue: int) -> float:
     return math.sqrt((red - 255) ** 2 + green**2 + (blue - 255) ** 2)
+
+
+def _green_distance(red: int, green: int, blue: int) -> float:
+    return math.sqrt(red**2 + (green - 255) ** 2 + blue**2)
 
 
 def detect_checkerboard_background(image: Image.Image) -> bool:
@@ -1486,18 +1491,22 @@ def detect_background_mode(image: Image.Image) -> str:
     if detect_checkerboard_background(rgba):
         return "checkerboard"
     total = max(1, rgba.width * rgba.height)
-    transparent = magenta = solid_light = 0
+    transparent = magenta = green_screen = solid_light = 0
     for red, green, blue, alpha in pixel_data(rgba):
         if alpha < 16:
             transparent += 1
         elif _magenta_distance(red, green, blue) < 48 or (red >= 210 and blue >= 190 and green <= 90):
             magenta += 1
+        elif _green_distance(red, green, blue) < 48 or (green >= 210 and red <= 90 and blue <= 90):
+            green_screen += 1
         elif red >= 248 and green >= 248 and blue >= 248:
             solid_light += 1
     if transparent / total > 0.08:
         return "transparent"
     if magenta / total > 0.20:
         return "magenta"
+    if green_screen / total > 0.20:
+        return "green"
     if solid_light / total > 0.25:
         return "solid_light"
     return "unknown"
@@ -1762,9 +1771,9 @@ def qc_sheet(
     if background_mode == "checkerboard":
         errors.append("fake checkerboard transparency detected")
     elif background_mode == "solid_light":
-        warnings.append("solid light background detected; use true alpha or pure #FF00FF for submission-safe cleanup")
+        warnings.append("solid light background detected; use true alpha, pure #FF00FF, or pure #00FF00 for submission-safe cleanup")
     elif background_mode == "unknown":
-        warnings.append("background is not transparent, #FF00FF, or clean white; chroma cleanup may leave artifacts")
+        warnings.append("background is not transparent, #FF00FF, #00FF00, or clean white; chroma cleanup may leave artifacts")
 
     if getattr(image, "is_animated", False):
         frames = [frame.convert("RGBA") for frame in ImageSequence.Iterator(image)]
