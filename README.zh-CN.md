@@ -65,10 +65,11 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-wizard
 - 选择画面风格：清爽贴纸、像素风、Q 版、办公室漫画等。
 - 选择微信投稿包或自用包，以及 16/24/18 数量。
 - 选择质量模式：`submission`、`standard`、`preview`。
+- 选择生图 provider：默认 `codex_builtin_image_gen` 是“生成后本轮结束”的 Codex 内置生图；`external_files` / `ai_studio_hermes` 适合已经能导出本地文件、可继续跑 QC 的外部流程。
 - 选择源图模式：默认 `2x2` keypose / 本地 16 帧渲染；专家模式可以选 `2x4` 或 `4x4` motion sheet。
-- 写出计划 JSON，下一步用里面的 `image_prompts` 调用 `image_gen`。
+- 写出计划 JSON，下一步用里面的 `image_prompts` 做生图 handoff。
 
-注意：`plan-wizard` 和 `plan-pack` 只会写计划和提示词，本地 Python 脚本不能自己调用 Codex 的生图工具。如果你是在 Codex agent 里要求“生成表情包”，agent 应该先询问上述选择；只有你明确说“用默认值”或已经给出这些选择时，才直接进入计划和 `image_gen`。计划生成后，agent 应继续调用内置 `image_gen` 生成前 3 张 keypose sheet；只有当前会话没有生图工具时，才把 prompts 交给你手动处理。
+注意：`plan-wizard` 和 `plan-pack` 只会写计划和提示词，本地 Python 脚本不能自己调用 Codex 的生图工具。如果使用 Codex 内置 `image_gen`，它是 terminal action：调用后不要假设同一轮还能继续跑 `accept-generated`、QC 或打包。正确做法是先生成下一张 keypose sheet，下一轮保存/导出本地文件后再继续后处理。只有 `--image-provider external_files` / `ai_studio_hermes` 这类已经有本地图片文件的路线，才适合连续编排。
 
 ### 2. 或者直接生成计划和 image_gen 提示词
 
@@ -114,15 +115,15 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
 - `image_prompts`：24 条可直接交给 Codex `image_gen` 的无文字 keypose 提示词，每条都带 `motion_template`、`local_effects`、`qc_policy`、`keypose_beats`、`timeline`、`continuity_acceptance`、`visual_gag`、`qc_acceptance` 和 `regenerate_hint`。
 - `meme_quality_bar` / `sendability_gate`：逐条检查“是不是真的有人想发”，弱梗先改再生图。
 - `raw_output_dir`：原图落盘目录。
-- `image_handoff`：把 `image_gen` 结果接进本地处理器的 `accept-generated` 命令模板，以及 `generated-index.json` 记录路径。
+- `image_handoff`：记录 provider 边界、terminal action 说明、下一轮恢复方式、`accept-generated` 命令模板和 `generated-index.json` 路径。
 
 ### 3. 调用 image_gen 生成无文字原图
 
-先把前 3 条 `image_prompts[].prompt` 交给 Codex 内置 `image_gen`，不要一口气做完 24 张。默认会要求生成一张 `2x2` keypose sheet，例如 `raw-frames/01-收到离线-2x2.png ... 24-你说得对-2x2.png`。每张 sheet 只含 4 个关键姿势，最终 16 帧由本地处理器按动作模板渲染。
+先用前 3 条 `image_prompts[].prompt` 做质量闸门，不要一口气做完 24 张。Codex 内置 `image_gen` 不是普通可串联命令：它应该作为当前轮的最后动作生成下一张 `2x2` keypose sheet。每张 sheet 只含 4 个关键姿势，最终 16 帧由本地处理器按动作模板渲染。
 
 看到“四格图”是正常的：它只是中间 keypose 原图，不是最终表情包。最终给用户检查的是 `preview.html`，最终交付文件在 `named-gifs/表情名.gif` 和 `wechat-submit/main/01.gif ...`。
 
-每次 `image_gen` 产出后，先把生成图保存/导出为本地文件，再用 `accept-generated` 复制到计划里的标准文件名。这样后续 `qc-sheet` 和 `build-pack` 不会找错文件；同时 `generated-index.json` 会留下每张图的交接记录。
+下一轮拿到保存/导出的本地图片后，再用 `accept-generated` 复制到计划里的标准文件名。这样后续 `qc-sheet` 和 `build-pack` 不会找错文件；同时 `generated-index.json` 会留下每张图的交接记录。
 
 ```bash
 python skills/generate-meme-gif-pack/scripts/meme_pack.py accept-generated \
@@ -155,7 +156,7 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py split-sheet \
 
 ### 4. 先跑 QC
 
-投稿模式先验收前 3 张，过了再继续生成剩余 21 张：
+投稿模式先验收前 3 张，过了再继续生成剩余计划图片：
 
 ```bash
 python skills/generate-meme-gif-pack/scripts/meme_pack.py qc-sheet \
@@ -189,7 +190,7 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py build-preview \
   --strict-continuity-qc
 ```
 
-打开 `output/preview-first-3/preview.html`，重点看动作是否连贯、角色是否漂移、文案是否想发。前三张只是质量闸门，不是交付终点；如果用户要完整包，通过后必须继续生成剩余 21 张并跑完整 `build-pack`。
+打开 `output/preview-first-3/preview.html`，重点看动作是否连贯、角色是否漂移、文案是否想发。前三张只是质量闸门，不是交付终点；如果用户要完整包，通过后必须继续生成剩余计划图片并跑完整 `build-pack`。
 
 ### 6. 构建微信 GIF 包
 

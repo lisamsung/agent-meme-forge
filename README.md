@@ -36,13 +36,13 @@ Restart the Codex session after installing a skill.
 
 ## Build a Pack
 
-For a guided intake that asks whether to use a reference image or text concept, plus scene/persona, style, pack size, and quality mode:
+For a guided intake that asks whether to use a reference image or text concept, plus scene/persona, style, pack size, quality mode, and image provider:
 
 ```bash
 python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-wizard
 ```
 
-Or create a prompt plan directly, then call Codex `image_gen` with the generated no-text prompts.
+Or create a prompt plan directly, then use the generated no-text prompts with your selected image provider. The default `codex_builtin_image_gen` provider is a terminal action in Codex: call it as the final action for the current turn, then resume local acceptance/QC in the next turn after the image has been saved/exported. Use `external_files` or `ai_studio_hermes` only when a provider already gives you local files for same-workflow processing.
 
 ```bash
 python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
@@ -58,7 +58,7 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
   --output output/ai-research-plan.json
 ```
 
-Generate and QC the first 3 sheets before making all 24. Save/export each `image_gen` result to a local file, then accept it into the planned raw filename:
+Generate and QC the first 3 sheets before making the full pack. With built-in Codex `image_gen`, generate one keypose sheet as a handoff, then in the next turn save/export it to a local file and accept it into the planned raw filename:
 
 ```bash
 python skills/generate-meme-gif-pack/scripts/meme_pack.py accept-generated \
@@ -87,7 +87,7 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py split-sheet \
   --cols 4
 ```
 
-Build an explicit first-3 preview before continuing the remaining 21 images. This path writes `preview.html` and never loops 3 source sheets into a fake 24-item package:
+Build an explicit first-3 preview before continuing the remaining planned images. This path writes `preview.html` and never loops 3 source sheets into a fake full package:
 
 ```bash
 python skills/generate-meme-gif-pack/scripts/meme_pack.py build-preview \
@@ -106,7 +106,7 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py build-preview \
   --strict-continuity-qc
 ```
 
-Then build the full package after all 24 source sheets exist:
+Then build the full package after every planned source sheet exists:
 
 ```bash
 python skills/generate-meme-gif-pack/scripts/meme_pack.py build-pack \

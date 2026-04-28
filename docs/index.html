@@ -231,7 +231,7 @@
           </div>
           <div class="card">
             <h3>交互选择</h3>
-            <p>新手可以用 plan-wizard 选择参考图片或文字概念、场景人设、画面风格、数量和质量模式。</p>
+            <p>新手可以用 plan-wizard 选择参考图片或文字概念、场景人设、画面风格、数量、质量模式和生图 provider。</p>
           </div>
           <div class="card">
             <h3>模板导演</h3>
@@ -295,7 +295,9 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
   --quality-mode submission \
   --output output/ai-research-plan.json
 
-# Use the first 3 image_prompts with Codex image_gen; prefer pure #FF00FF keypose sheets unless the exported PNG has verified real alpha.
+# Codex built-in image_gen is a terminal action:
+# generate the next keypose sheet first, then resume accept/QC in the next turn after saving a local file.
+# external_files / ai_studio_hermes providers may continue with accept/QC in the same workflow after local files exist.
 python skills/generate-meme-gif-pack/scripts/meme_pack.py qc-sheet \
   --input raw-frames/01-收到离线-2x2.png \
   --source-mode keyposes \

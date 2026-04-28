@@ -31,8 +31,10 @@ def test_skill_frontmatter_and_hard_rules_are_present():
     assert "choose" in text.lower() or "ask" in text.lower()
     assert "--quality-mode submission" in text
     assert "--strict-qc" in text
-    assert "MUST call" in text
-    assert "do not stop after" in text
+    assert "terminal action" in text
+    assert "same turn" in text
+    assert "next turn" in text
+    assert "do not try to run" in text
     assert "没人用的表情包就是垃圾表情包" in text
     assert "sendability gate" in text.lower()
     assert "local_effects" in text
@@ -46,7 +48,7 @@ def test_skill_frontmatter_and_hard_rules_are_present():
     assert "named-gifs" in text
     assert "first 3 are a QC checkpoint, not a stopping point" in text
     assert "do not end the task after the first-3 preview" in text
-    assert "continue to the remaining prompts in the same workflow" in text
+    assert "external_files" in text
 
 
 def test_references_cover_wechat_prompt_persona_and_humor():
@@ -101,6 +103,8 @@ def test_prompt_rules_support_direct_text_generation():
     assert "final handoff" in text
     assert "not a stopping point" in text
     assert "full pack" in text
+    assert "terminal action" in text
+    assert "same-turn" in text
 
 
 def test_pages_readme_link_stays_inside_project_or_github():

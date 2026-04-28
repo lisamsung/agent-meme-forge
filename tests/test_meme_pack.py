@@ -214,20 +214,57 @@ def test_plan_pack_builds_direct_text_image_prompts():
     assert "checkerboard" in first_prompt_plan["qc_acceptance"]
     assert first_prompt_plan["regenerate_hint"]
     assert plan["quality_mode"] == "submission"
-    assert "MUST call built-in image_gen" in plan["agent_instructions"][0]
-    assert "Do not stop after writing the plan" in plan["agent_instructions"][0]
+    assert plan["image_provider"] == "codex_builtin_image_gen"
+    assert plan["requires_agent_tooling"]["provider_mode"] == "terminal_action"
+    assert plan["requires_agent_tooling"]["same_turn_postprocess_supported"] is False
+    assert plan["image_handoff"]["terminal_action"] is True
+    assert "terminal action" in plan["requires_agent_tooling"]["tool_boundary"]
+    assert "next turn" in plan["image_handoff"]["tool_output_requirement"]
     joined_instructions = " ".join(plan["agent_instructions"])
     assert "first 3 are a QC checkpoint, not a stopping point" in joined_instructions
     assert "do not end the task after the first-3 preview" in joined_instructions
-    assert "continue to the remaining prompts in the same workflow" in joined_instructions
+    assert "do not try to run accept-generated or QC in the same turn" in joined_instructions
+    assert "resume in the next turn" in joined_instructions
+    assert "same turn" not in plan["workflow_contract"]["continue_after_preview"]
     assert "Replace any weak joke" in " ".join(plan["agent_instructions"])
     assert plan["workflow_contract"]["first_three_policy"] == "The first 3 are a QC checkpoint, not a stopping point."
     assert "Complete only when 24 accepted raw images" in plan["workflow_contract"]["completion_definition"]
-    assert "user explicitly requested first-3 preview only" in plan["workflow_contract"]["allowed_stop_conditions"]
+    assert "waiting for the next turn with exported Codex image_gen files" in plan["workflow_contract"]["allowed_pause_conditions"]
     assert plan["requires_agent_tooling"]["image_generation_tool"] == "image_gen"
     assert plan["raw_output_dir"] == "output/raw-frames/AgentMemePack"
     assert "accept-generated" in plan["image_handoff"]["accept_generated_command"]
     assert "generated-index.json" in plan["image_handoff"]["index_file"]
+
+
+def test_plan_pack_can_emit_external_provider_continuous_handoff():
+    meme_pack = load_module()
+
+    plan = meme_pack.plan_pack(
+        subject="round mascot",
+        persona="码农",
+        style="clean-sticker",
+        pack_size=16,
+        mode="wechat",
+        pack_name="External Provider Pack",
+        image_provider="external_files",
+    )
+
+    instructions = " ".join(plan["agent_instructions"])
+    assert plan["image_provider"] == "external_files"
+    assert plan["requires_agent_tooling"]["provider_mode"] == "external_or_scriptable_files"
+    assert plan["requires_agent_tooling"]["same_turn_postprocess_supported"] is True
+    assert plan["image_handoff"]["terminal_action"] is False
+    assert "all 24" not in instructions
+    assert "remaining 21" not in instructions
+    assert "all planned image_prompts" in instructions
+    assert "continue to the remaining prompts in the same workflow" in instructions
+    assert "Complete only when 16 accepted raw images" in plan["workflow_contract"]["completion_definition"]
+    assert "strict QC or continuity QC fails and regeneration is needed" not in " ".join(
+        plan["workflow_contract"]["allowed_pause_conditions"]
+    )
+    assert "fails repeatedly after regeneration attempts" in " ".join(
+        plan["workflow_contract"]["allowed_pause_conditions"]
+    )
 
 
 def test_plan_pack_writes_shell_safe_commands_and_handoff():
@@ -525,6 +562,7 @@ def test_plan_wizard_collects_text_concept_choices(tmp_path: Path):
             "1",  # wechat
             "2",  # 16
             "1",  # submission
+            "",  # default Codex built-in image_gen terminal provider
             "",  # forced/default 2x2 keyposes
             "猫猫码农包",
             "",  # default tone
@@ -542,6 +580,8 @@ def test_plan_wizard_collects_text_concept_choices(tmp_path: Path):
     assert plan["style"] == "pixel-art"
     assert plan["pack_size"] == 16
     assert plan["quality_mode"] == "submission"
+    assert plan["image_provider"] == "codex_builtin_image_gen"
+    assert plan["requires_agent_tooling"]["provider_mode"] == "terminal_action"
     assert plan["animation"]["source_mode"] == "keyposes"
     assert plan["animation"]["source_layout"] == "2x2"
     assert any("先生成前 3 张" in message for message in messages)
@@ -563,6 +603,7 @@ def test_plan_wizard_collects_reference_image_choices(tmp_path: Path):
             "2",  # self_use
             "",  # default 18
             "3",  # preview
+            "2",  # external_files provider can continue after local files exist
             "2",  # 1x4
             "我的测试包",
             "轻微发疯但安全",
@@ -579,6 +620,8 @@ def test_plan_wizard_collects_reference_image_choices(tmp_path: Path):
     assert plan["mode"] == "self_use"
     assert plan["pack_size"] == 18
     assert plan["quality_mode"] == "preview"
+    assert plan["image_provider"] == "external_files"
+    assert plan["requires_agent_tooling"]["same_turn_postprocess_supported"] is True
     assert plan["animation"]["source_layout"] == "1x4"
 
 

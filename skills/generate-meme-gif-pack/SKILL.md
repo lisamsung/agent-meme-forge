@@ -32,14 +32,15 @@ Infer only after the user gives a minimal request such as “做科研打工人�
 - `keypose_layout`: default `2x2`; also supports `1x4`. This is the preferred raw image layout for submission.
 - `render_frame_count`: default `16`; the local processor renders deterministic holds, anticipation, rebound, and loop closure from the key poses.
 - `animation_layout`: legacy `motion_sheet` layout, default `2x4`; use `4x4` only when intentionally asking image_gen to draw every frame.
-- `quality_mode`: default `submission`; also `standard` or `preview`. Submission requires strict QC, real `2x4` or `4x4` sheets, and no single-image bounce fallback.
+- `quality_mode`: default `submission`; also `standard` or `preview`. Submission requires strict QC, real `2x2`/`1x4` keypose sheets or explicit legacy `2x4`/`4x4` motion sheets, and no single-image bounce fallback.
+- `image_provider`: default `codex_builtin_image_gen`. Use `external_files` or `ai_studio_hermes` only when an outside/scriptable provider has already produced local image files that can be accepted and QC'd in the same workflow.
 
 If the user asks for 18 and wants WeChat upload, explain that WeChat albums use 16 or 24, then default to 24 unless they explicitly switch to `self_use`.
 
 ## Agent Rules
 
-- Critical orchestration rule: if the user asked to actually generate a sticker pack and this Codex session exposes an image generation tool, the agent MUST call built-in `image_gen` after creating/reviewing the plan; do not stop after `plan-pack` or `plan-wizard` with only prompts unless the image tool is unavailable.
-- `image-2` or `gpt-image-2` is the image model/backend name in some contexts; inside Codex the callable tool is `image_gen`. The script cannot call that tool by itself.
+- Critical tool-boundary rule: Codex built-in `image_gen` is a terminal action in this environment. The agent may call it to generate the next raw keypose image, but do not try to run `accept-generated`, `qc-sheet`, or `build-preview` in the same turn after that call; do not try to run local postprocessing until the next turn has a saved local file.
+- `image-2` or `gpt-image-2` is the image model/backend name in some contexts; inside Codex the callable tool is `image_gen`. The script cannot call that tool by itself, and the built-in tool does not behave like a normal shell command that returns a local file path for immediate postprocessing.
 - If `image_gen` is unavailable in the session, say that generation is blocked by missing image tooling and return the plan JSON plus exact prompts to run elsewhere.
 - Make the character stylized but recognizable: preserve hair, face shape, posture, vibe, and signature details when a reference image exists; for `text_concept`, create an original mascot or character from the concept without copying official logos or exact copyrighted characters.
 - Require the user to own or have permission for the reference image when the image depicts a real person.
@@ -47,12 +48,12 @@ If the user asks for 18 and wants WeChat upload, explain that WeChat albums use 
 - Do not ask the image model to draw Chinese text. The visual prompt must say **no text**, no captions, no speech bubbles, no UI.
 - Write meme copy yourself. Every item needs a concrete sending scenario.
 - Treat `meme_quality_bar` and every `sendability_gate` as hard product gates. Each sticker needs a reuse trigger, emotional value, creative hook, and visual gag; if it is only cute or decorative, rewrite it before generation.
-- If the user has not provided choices, ask the intake questions explicitly before generation: reference image or text concept, persona/scene, style, WeChat or self-use, count, and quality mode. Only infer defaults without asking when the user says to use defaults or gives a minimal request and clearly wants immediate automatic generation.
+- If the user has not provided choices, ask the intake questions explicitly before generation: reference image or text concept, persona/scene, style, WeChat or self-use, count, quality mode, and image provider. Only infer defaults without asking when the user says to use defaults or gives a minimal request and clearly wants immediate automatic generation.
 - Use `scripts/meme_pack.py plan-pack` to write the meme entries, character card, and per-sticker `image_gen` prompts.
 - Use `scripts/meme_pack.py plan-wizard` when the user wants a command-line guided setup instead of agent chat intake.
-- Use built-in `image_gen` for raw no-text keypose sheets by default. Use `scripts/meme_pack.py build-pack` for deterministic motion rendering, captioning, continuity QC, and export.
-- After each `image_gen` result, persist the generated image as a local file and run `scripts/meme_pack.py accept-generated`; this copies it to the planned `raw_image_filename` and writes `generated-index.json`.
-- If `image_gen` returns only an attachment with no usable local file path, stop and ask the user to save/export the attachment locally before QC. Do not pretend `qc-sheet` can read an unsaved chat attachment.
+- Use built-in `image_gen` for raw no-text keypose sheets by default, but treat each call as a handoff point. Before calling it, identify the planned prompt index and `raw_image_filename`; after it runs, resume in the next turn when the user has saved/exported a local image file.
+- In the next turn, run `scripts/meme_pack.py accept-generated`; this copies the saved image to the planned `raw_image_filename` and writes `generated-index.json`.
+- If `image_gen` returns only an attachment with no usable local file path, ask the user to save/export the attachment locally before QC. Do not pretend `qc-sheet` can read an unsaved chat attachment.
 - Prefer one semantic keypose sheet per sticker: 4 stable poses that the local processor can turn into a 12/16-frame loop. Single-pose sources are allowed only for fast previews or fallback.
 - Keypose sheets must use exact grid count, same character identity, same bounding box, same pixel scale, clear margins, no cell-edge crossing, and no text.
 - A `2x2` or `1x4` source image is an intermediate raw keypose sheet, not final delivery. Do not present the four-cell sheet as the finished sticker pack unless the user is explicitly debugging raw sources.
@@ -66,8 +67,8 @@ If the user asks for 18 and wants WeChat upload, explain that WeChat albums use 
 - ChatGPT Images can be asked for transparent background; API model support varies, and `gpt-image-2` should use solid flat `#FF00FF` fallback plus local cleanup because it does not support true transparent background.
 - For API models that support transparent output, request an alpha-capable format such as PNG or WebP, for example with `background: "transparent"` and `output_format: "png"`.
 - Reject fake checkerboard transparency and visible separator lines. They are just pixels, not alpha transparency or valid motion-sheet structure.
-- Run `qc-sheet` and build/continuity QC on the first 3 generated keypose sheets before generating all 24. Regenerate anything that fails layout, transparency, edge-touch, bbox drift, loop closure, motion energy, prop position jump, prop lifecycle, face/head shape drift, or readability checks.
-- The first 3 are a QC checkpoint, not a stopping point. If the user requested a full pack, do not end the task after the first-3 preview; continue to the remaining prompts in the same workflow after QC passes.
+- Run `qc-sheet` and build/continuity QC on the first 3 generated keypose sheets before generating the full planned pack. Regenerate anything that fails layout, transparency, edge-touch, bbox drift, loop closure, motion energy, prop position jump, prop lifecycle, face/head shape drift, or readability checks.
+- The first 3 are a QC checkpoint, not a stopping point. If the user requested a full pack, do not end the task after the first-3 preview. With built-in `image_gen`, continue across turns after each exported file is available; only `external_files` or `ai_studio_hermes` may continue to the remaining prompts in the same workflow.
 - For WeChat submission, use `--quality-mode submission --strict-qc`. Single-image `single_bounce` output is preview-only.
 - WeChat output must include numbered upload files and readable named GIF files.
 
@@ -107,14 +108,14 @@ For a reference image, add `--reference-image path/to/reference.png` and describ
    - `animation`: source mode, keypose layout, and rendered frame count; default `keyposes` / `2x2` / 16 frames.
    - `image_prompts`: one keypose prompt per sticker for `image_gen`, plus motion template, `local_effects`, `qc_policy`, and local timeline.
    - `meme_quality_bar` and each prompt's `sendability_gate`: the usefulness test for whether this sticker deserves to exist.
-   - `requires_agent_tooling`: confirms `image_gen` is required for actual generation.
-   - `image_handoff`: exact `accept-generated` command template and `generated-index.json` audit path.
+   - `requires_agent_tooling`: confirms the image provider and whether same-turn postprocessing is supported.
+   - `image_handoff`: exact `accept-generated` command template, terminal action boundary, next turn resume note, and `generated-index.json` audit path.
 4. Plan 24 entries:
    - 12 common high-frequency chat reactions.
    - 8 persona-specific jokes.
    - 4 reusable filler reactions.
 5. Generate and QC raw images:
-   - MUST call built-in `image_gen` for the first 3 generated `image_prompts`, not all 24 at once, when the tool is available.
+   - For built-in `image_gen`, call the tool only as the final action of the current turn for the next required `image_prompts` item. Do not batch all prompts and do not expect same-turn postprocessing.
    - Do not stop after writing the plan; the plan is only an intermediate artifact.
    - Default quality path: one `2x2` no-text keypose sheet per sticker. The local processor renders the final 16-frame loop from a motion template such as `soul_offline`, `loading_loop`, or `pretend_understand`.
    - The processor adds template-level comic effects locally rather than asking image_gen to invent them. Keep the raw keyposes clean; let local rendering add soul puff, loading dots, sweat drops, or awkward lines across multiple frames.
@@ -122,10 +123,10 @@ For a reference image, add `--reference-image path/to/reference.png` and describ
    - Label raw `2x2`/`1x4` keypose PNGs as intermediate source material when showing progress. The final user preview starts at `preview.html`; the finished files live in `named-gifs/` and `wechat-submit/main/`.
    - For a fast first pass only, one 4x6 contact sheet of static poses is acceptable; split it with `split-sheet` before `build-pack`.
    - For Codex `image_gen`, ask for a pure solid `#FF00FF` background by default. Use transparent PNG only when the current tool can prove it exports real alpha to disk. If using ChatGPT Images directly or an API model that supports transparency, transparent PNG is acceptable; if using `gpt-image-2` or another model/tool that cannot output true alpha, use a solid flat `#FF00FF` background and let the processor remove it locally.
-   - After each generated image is available as a local file, run `accept-generated` so it lands at the planned raw filename.
+   - After each generated image is available as a local file in a later turn, run `accept-generated` so it lands at the planned raw filename.
    - Run `qc-sheet` on those first 3 accepted keypose sheets. Then run `build-preview --strict-continuity-qc --preview-count 3` so final animation continuity is checked before batch generation. Do not use full `build-pack` with only 3 sources; full builds refuse to reuse source images automatically. If a sheet fails, use its `regenerate_hint` from the plan and generate again.
    - If the first 3 look technically correct but not worth sending, revise their captions, visual gags, or motion plans before continuing. Technical pass does not override the sendability gate.
-   - Continue to the remaining 21 sheets only after the first 3 pass QC. Do not report the task as done at this checkpoint unless the user explicitly requested a first-3 preview only.
+   - Continue to the remaining planned sheets only after the first 3 pass QC. For built-in `image_gen`, this continuation is across turns; for `external_files` or `ai_studio_hermes`, it can be in the same workflow. Do not report the task as done at this checkpoint unless the user explicitly requested a first-3 preview only.
 
 ```bash
 python skills/generate-meme-gif-pack/scripts/meme_pack.py accept-generated \
@@ -165,7 +166,7 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py build-preview \
   --strict-continuity-qc
 ```
 
-Only continue after `output/preview-first-3/preview.html` looks sendable and stable. This preview is a checkpoint, not completion. For a full pack request, keep going in the same turn/workflow until every planned prompt has an accepted source image and full `build-pack` succeeds. Full `build-pack` requires one accepted source image per sticker; it must not silently loop the first three images.
+Only continue after `output/preview-first-3/preview.html` looks sendable and stable. This preview is a checkpoint, not completion. For a full pack request, keep going across the project workflow until every planned prompt has an accepted source image and full `build-pack` succeeds. Do not promise same turn continuation when using built-in `image_gen`; same-turn continuation applies only to `external_files` or `ai_studio_hermes`. Full `build-pack` requires one accepted source image per sticker; it must not silently loop the first three images.
 
 Optional static contact-sheet split for previews:
 

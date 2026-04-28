@@ -91,6 +91,27 @@ QUALITY_MODES = {"preview", "standard", "submission"}
 MOTION_PROFILES = {"micro", "standard", "action"}
 SOURCE_MODES = {"keyposes", "motion_sheet", "single_bounce"}
 DEFAULT_SOURCE_MODE = "keyposes"
+IMAGE_PROVIDER_CODEX_BUILTIN = "codex_builtin_image_gen"
+IMAGE_PROVIDER_EXTERNAL_FILES = "external_files"
+IMAGE_PROVIDER_AI_STUDIO_HERMES = "ai_studio_hermes"
+IMAGE_PROVIDERS = {
+    IMAGE_PROVIDER_CODEX_BUILTIN,
+    IMAGE_PROVIDER_EXTERNAL_FILES,
+    IMAGE_PROVIDER_AI_STUDIO_HERMES,
+}
+IMAGE_PROVIDER_ALIASES = {
+    "codex": IMAGE_PROVIDER_CODEX_BUILTIN,
+    "codex_builtin": IMAGE_PROVIDER_CODEX_BUILTIN,
+    "image_gen": IMAGE_PROVIDER_CODEX_BUILTIN,
+    "builtin": IMAGE_PROVIDER_CODEX_BUILTIN,
+    "external": IMAGE_PROVIDER_EXTERNAL_FILES,
+    "external_batch": IMAGE_PROVIDER_EXTERNAL_FILES,
+    "external_files": IMAGE_PROVIDER_EXTERNAL_FILES,
+    "ai_studio": IMAGE_PROVIDER_AI_STUDIO_HERMES,
+    "hermes": IMAGE_PROVIDER_AI_STUDIO_HERMES,
+    "ai_studio_hermes": IMAGE_PROVIDER_AI_STUDIO_HERMES,
+}
+DEFAULT_IMAGE_PROVIDER = IMAGE_PROVIDER_CODEX_BUILTIN
 DEFAULT_KEYPOSE_LAYOUT = "2x2"
 KEYPOSE_LAYOUTS = {"2x2", "1x4"}
 MOTION_SHEET_LAYOUTS = {"2x4", "4x4"}
@@ -374,6 +395,15 @@ def parse_source_mode(source_mode: str) -> str:
     if source_mode not in SOURCE_MODES:
         raise ValueError(f"Unsupported source_mode '{source_mode}'. Use one of: {', '.join(sorted(SOURCE_MODES))}.")
     return source_mode
+
+
+def parse_image_provider(image_provider: str) -> str:
+    normalized = IMAGE_PROVIDER_ALIASES.get(image_provider, image_provider)
+    if normalized not in IMAGE_PROVIDERS:
+        raise ValueError(
+            f"Unsupported image_provider '{image_provider}'. Use one of: {', '.join(sorted(IMAGE_PROVIDERS))}."
+        )
+    return normalized
 
 
 def parse_keypose_layout(layout: str) -> str:
@@ -1054,9 +1084,11 @@ def plan_pack(
     source_mode: str = DEFAULT_SOURCE_MODE,
     keypose_layout: str = DEFAULT_KEYPOSE_LAYOUT,
     render_frame_count: int = DEFAULT_RENDER_FRAME_COUNT,
+    image_provider: str = DEFAULT_IMAGE_PROVIDER,
 ) -> dict:
     validate_pack_size(pack_size, mode)
     source_mode = parse_source_mode(source_mode)
+    image_provider = parse_image_provider(image_provider)
     if source_mode == "keyposes":
         source_layout = parse_keypose_layout(keypose_layout)
     else:
@@ -1128,6 +1160,129 @@ def plan_pack(
         "--source-dir",
         raw_output_dir,
     ]
+    first_three_instruction = (
+        "The first 3 are a QC checkpoint, not a stopping point. If the user requested a full pack, "
+        "do not end the task after the first-3 preview."
+    )
+    completion_definition = (
+        f"Complete only when {pack_size} accepted raw images have been built into preview.html, "
+        "named-gifs/*.gif, wechat-submit/main/*.gif, manifest.json, and qc_report.json."
+    )
+    base_pause_conditions = [
+        "user explicitly requested first-3 preview only",
+        "image generation tooling is unavailable",
+        "generated image only exists as an unsaved attachment and the user must export a local file",
+        "strict QC or continuity QC fails repeatedly after regeneration attempts and user decision is needed",
+        "the user explicitly pauses or changes the task",
+    ]
+    if image_provider == IMAGE_PROVIDER_CODEX_BUILTIN:
+        requires_agent_tooling = {
+            "image_generation_tool": "image_gen",
+            "local_processor": "scripts/meme_pack.py",
+            "provider_mode": "terminal_action",
+            "same_turn_postprocess_supported": False,
+            "tool_boundary": (
+                "Codex built-in image_gen is a terminal action in this environment. The local processor "
+                "cannot generate images, and the agent must not assume it can run accept-generated or QC "
+                "in the same turn after calling image_gen."
+            ),
+        }
+        image_handoff = {
+            "tool_output_requirement": (
+                "When using Codex built-in image_gen, call image_gen as the final action for the current "
+                "turn. In the next turn, after the generated PNG has been saved/exported to a local file, "
+                "run accept-generated and QC."
+            ),
+            "accept_generated_command": shell_join(accept_generated_command_args),
+            "index_file": f"{raw_output_dir}/generated-index.json",
+            "blocked_without_local_file": True,
+            "terminal_action": True,
+            "same_turn_postprocessing": False,
+            "next_turn_resume": "Run accept-generated with the saved file path, then qc-sheet/build-preview or build-pack.",
+        }
+        workflow_contract = {
+            "first_three_policy": "The first 3 are a QC checkpoint, not a stopping point.",
+            "continue_after_preview": (
+                "If the user requested a full pack, continue across turns after generated files are "
+                "available; do not promise same-turn postprocessing after Codex built-in image_gen."
+            ),
+            "completion_definition": completion_definition,
+            "same_turn_continuation": False,
+            "allowed_pause_conditions": [
+                "waiting for the next turn with exported Codex image_gen files",
+                *base_pause_conditions,
+            ],
+        }
+        agent_instructions = [
+            (
+                "Codex built-in image_gen is a terminal action. Use it only as the final action of the "
+                "current turn for the next required no-text keypose sheet; do not try to run "
+                "accept-generated or QC in the same turn after calling it."
+            ),
+            (
+                "Before calling image_gen, write/review the plan and identify the target image_prompts "
+                "index, raw_image_filename, and prompt. Do not describe the sticker pack as complete "
+                "after a raw keypose sheet is generated."
+            ),
+            (
+                "When the user returns in the next turn with a saved/exported local image file, run "
+                "meme_pack.py accept-generated with the plan JSON, sticker index, generated image path, "
+                "and raw output directory so QC/build-pack can find the exact planned filename."
+            ),
+            f"Run meme_pack.py qc-sheet --source-mode {source_mode} --source-layout {source_layout} --quality-mode {quality_mode} on accepted sheets and regenerate any fail or weak warning using regenerate_hint.",
+            (
+                f"{first_three_instruction} For built-in image_gen this checkpoint may span multiple turns; "
+                "after the first 3 pass QC, resume in the next turn with the remaining prompts until the "
+                "full pack reaches the completion definition."
+            ),
+            f"Save raw generated no-text images using raw_image_filename under {raw_output_dir}; accept-generated writes generated-index.json as the handoff audit trail.",
+            "Replace any weak joke before generation: every sticker must pass meme_quality_bar and image_prompts[].sendability_gate; if it is only cute or decorative, rewrite the caption, scene, visual gag, and motion.",
+            "Reject and regenerate any raw sheet that contains text, speech bubbles, official logos, brand marks, wrong grid count, a tiny face, edge-crossing props, or a character that drifts from the character card.",
+            f"After all planned raw sheets are accepted, run meme_pack.py build-pack with --source-mode {source_mode} --source-layout {source_layout} --quality-mode {quality_mode} --strict-qc --strict-continuity-qc plus the same persona, style, pack_size, mode, and pack_name.",
+        ]
+    else:
+        requires_agent_tooling = {
+            "image_generation_tool": image_provider,
+            "local_processor": "scripts/meme_pack.py",
+            "provider_mode": "external_or_scriptable_files",
+            "same_turn_postprocess_supported": True,
+            "tool_boundary": (
+                "The local processor cannot generate images. The external provider or operator must "
+                "produce local image files before accept-generated/QC can run."
+            ),
+        }
+        image_handoff = {
+            "tool_output_requirement": (
+                "After each provider output is available as a local PNG/GIF file, run accept-generated "
+                "and continue QC/build steps in the same workflow."
+            ),
+            "accept_generated_command": shell_join(accept_generated_command_args),
+            "index_file": f"{raw_output_dir}/generated-index.json",
+            "blocked_without_local_file": True,
+            "terminal_action": False,
+            "same_turn_postprocessing": True,
+        }
+        workflow_contract = {
+            "first_three_policy": "The first 3 are a QC checkpoint, not a stopping point.",
+            "continue_after_preview": (
+                "If the user requested a full pack, continue to the remaining prompts in the same "
+                "workflow after QC passes."
+            ),
+            "completion_definition": completion_definition,
+            "same_turn_continuation": True,
+            "allowed_pause_conditions": base_pause_conditions,
+        }
+        agent_instructions = [
+            "Use the external batch-capable image provider to generate the first 3 image_prompts before committing to all planned image_prompts. Save each raw no-text motion sheet exactly as raw_image_filename.",
+            "After each image generation result is saved/exported as a local image, run meme_pack.py accept-generated with the plan JSON, sticker index, generated image path, and raw output directory so QC/build-pack can find the exact planned filename.",
+            f"Run meme_pack.py qc-sheet --source-mode {source_mode} --source-layout {source_layout} --quality-mode {quality_mode} on those first 3 accepted sheets and regenerate any fail or weak warning using regenerate_hint.",
+            f"{first_three_instruction} After QC passes, continue to the remaining prompts in the same workflow.",
+            "After the first 3 sheets pass QC, generate one no-text motion sheet per remaining planned image_prompts item.",
+            f"Save raw generated no-text images using raw_image_filename under {raw_output_dir}; accept-generated writes generated-index.json as the handoff audit trail.",
+            "Replace any weak joke before generation: every sticker must pass meme_quality_bar and image_prompts[].sendability_gate; if it is only cute or decorative, rewrite the caption, scene, visual gag, and motion.",
+            "Reject and regenerate any raw sheet that contains text, speech bubbles, official logos, brand marks, wrong grid count, a tiny face, edge-crossing props, or a character that drifts from the character card.",
+            f"After raw sheets are accepted, run meme_pack.py build-pack with --source-mode {source_mode} --source-layout {source_layout} --quality-mode {quality_mode} --strict-qc --strict-continuity-qc plus the same persona, style, pack_size, mode, and pack_name.",
+        ]
     return {
         "pack_name": pack_name,
         "subject": subject.strip(),
@@ -1140,6 +1295,7 @@ def plan_pack(
         "tone": tone,
         "quality_mode": quality_mode,
         "source_mode": source_mode,
+        "image_provider": image_provider,
         "raw_output_dir": raw_output_dir,
         "character_card": character_card,
         "animation": {
@@ -1159,40 +1315,10 @@ def plan_pack(
         "meme_quality_bar": MEME_QUALITY_BAR,
         "items": [asdict(entry) for entry in entries],
         "image_prompts": prompts,
-        "requires_agent_tooling": {
-            "image_generation_tool": "image_gen",
-            "local_processor": "scripts/meme_pack.py",
-            "tool_boundary": "The local processor cannot generate images. The Codex agent must invoke image_gen when the user requested actual sticker generation.",
-        },
-        "image_handoff": {
-            "tool_output_requirement": "After each image_gen call, persist the generated PNG/GIF to a local file before running QC. If the tool only returns a chat attachment and no local path is available, stop and ask the user to save/export that attachment.",
-            "accept_generated_command": shell_join(accept_generated_command_args),
-            "index_file": f"{raw_output_dir}/generated-index.json",
-            "blocked_without_local_file": True,
-        },
-        "workflow_contract": {
-            "first_three_policy": "The first 3 are a QC checkpoint, not a stopping point.",
-            "continue_after_preview": "If the user requested a full pack, do not end the task after the first-3 preview; continue to the remaining prompts in the same workflow after QC passes.",
-            "completion_definition": f"Complete only when {pack_size} accepted raw images have been built into preview.html, named-gifs/*.gif, wechat-submit/main/*.gif, manifest.json, and qc_report.json.",
-            "allowed_stop_conditions": [
-                "user explicitly requested first-3 preview only",
-                "image_gen is unavailable in the current session",
-                "image_gen returned only unsaved attachments and the user must export local files",
-                "strict QC or continuity QC fails and regeneration is needed",
-                "the user explicitly pauses or changes the task",
-            ],
-        },
-        "agent_instructions": [
-            "MUST call built-in image_gen for the first 3 image_prompts before committing to all 24 when the current agent session exposes an image generation tool. Do not stop after writing the plan or tell the user to call image_gen manually unless the tool is unavailable. Save each raw no-text motion sheet exactly as raw_image_filename.",
-            "After each image_gen result is saved/exported as a local image, run meme_pack.py accept-generated with the plan JSON, sticker index, generated image path, and raw output directory so QC/build-pack can find the exact planned filename.",
-            f"Run meme_pack.py qc-sheet --source-mode {source_mode} --source-layout {source_layout} --quality-mode {quality_mode} on those first 3 accepted sheets and regenerate any fail or weak warning using regenerate_hint.",
-            "The first 3 are a QC checkpoint, not a stopping point. If the user requested a full pack, do not end the task after the first-3 preview; continue to the remaining prompts in the same workflow after QC passes.",
-            "After the first 3 sheets pass QC, call image_gen once per remaining image_prompt to generate one no-text motion sheet per sticker.",
-            f"Save raw generated no-text images using raw_image_filename under {raw_output_dir}; accept-generated writes generated-index.json as the handoff audit trail.",
-            "Replace any weak joke before generation: every sticker must pass meme_quality_bar and image_prompts[].sendability_gate; if it is only cute or decorative, rewrite the caption, scene, visual gag, and motion.",
-            "Reject and regenerate any raw sheet that contains text, speech bubbles, official logos, brand marks, wrong grid count, a tiny face, edge-crossing props, or a character that drifts from the character card.",
-            f"After raw sheets are accepted, run meme_pack.py build-pack with --source-mode {source_mode} --source-layout {source_layout} --quality-mode {quality_mode} --strict-qc --strict-continuity-qc plus the same persona, style, pack_size, mode, and pack_name.",
-        ],
+        "requires_agent_tooling": requires_agent_tooling,
+        "image_handoff": image_handoff,
+        "workflow_contract": workflow_contract,
+        "agent_instructions": agent_instructions,
         "processor_command_args": processor_command_args,
         "processor_command": shell_join(processor_command_args),
     }
@@ -3273,8 +3399,8 @@ def _prompt_choice(
 
 def run_plan_wizard(input_fn=input, print_fn=print) -> dict:
     print_fn("Agent Meme Forge interactive plan wizard")
-    print_fn("This wizard only writes the plan JSON. Generate the first 3 raw sheets with image_gen, accept each local image file, then run qc-sheet.")
-    print_fn("前三张只是质量闸门，不是交付终点；如果用户要完整包，前三张通过后必须继续生成剩余图片并跑 build-pack。")
+    print_fn("This wizard writes the plan JSON. Codex built-in image_gen is a terminal action, so accept/QC resumes in the next turn after a local image file is available.")
+    print_fn("前三张只是质量闸门，不是交付终点；内置 image_gen 不能同一轮串联后处理，下一轮拿到本地文件后继续 accept/QC/build。")
     input_mode = _prompt_choice(
         "Step 1: choose the character source",
         ["text_concept", "reference_image"],
@@ -3331,8 +3457,15 @@ def run_plan_wizard(input_fn=input, print_fn=print) -> dict:
         input_fn=input_fn,
         print_fn=print_fn,
     )
+    image_provider = _prompt_choice(
+        "Step 7: choose image provider",
+        [DEFAULT_IMAGE_PROVIDER, IMAGE_PROVIDER_EXTERNAL_FILES, IMAGE_PROVIDER_AI_STUDIO_HERMES],
+        default_index=0,
+        input_fn=input_fn,
+        print_fn=print_fn,
+    )
     selected_layout = _prompt_choice(
-        "Step 7: choose source layout (2x2/1x4 keyposes, 2x4/4x4 legacy motion sheets)",
+        "Step 8: choose source layout (2x2/1x4 keyposes, 2x4/4x4 legacy motion sheets)",
         [DEFAULT_KEYPOSE_LAYOUT, "1x4", DEFAULT_ANIMATION_LAYOUT, "4x4", "1x8", "2x3"],
         default_index=0,
         input_fn=input_fn,
@@ -3342,9 +3475,9 @@ def run_plan_wizard(input_fn=input, print_fn=print) -> dict:
     keypose_layout = selected_layout if source_mode == "keyposes" else DEFAULT_KEYPOSE_LAYOUT
     animation_layout = DEFAULT_ANIMATION_LAYOUT if source_mode == "keyposes" else selected_layout
 
-    pack_name = _prompt_text("Step 8: pack name", default="Agent Meme Pack", input_fn=input_fn)
-    tone = _prompt_text("Step 9: humor tone", default="职场发疯但安全", input_fn=input_fn)
-    output = Path(_prompt_text("Step 10: output plan JSON path", default="output/meme-plan.json", input_fn=input_fn))
+    pack_name = _prompt_text("Step 9: pack name", default="Agent Meme Pack", input_fn=input_fn)
+    tone = _prompt_text("Step 10: humor tone", default="职场发疯但安全", input_fn=input_fn)
+    output = Path(_prompt_text("Step 11: output plan JSON path", default="output/meme-plan.json", input_fn=input_fn))
     plan = plan_pack(
         subject=subject,
         persona=persona,
@@ -3358,10 +3491,11 @@ def run_plan_wizard(input_fn=input, print_fn=print) -> dict:
         quality_mode=quality_mode,
         source_mode=source_mode,
         keypose_layout=keypose_layout,
+        image_provider=image_provider,
     )
     write_plan(output, plan)
     print_fn(f"Plan written: {output}")
-    print_fn("Next: 先生成前 3 张 image_gen keypose sheets, 用 accept-generated 落盘命名，再 run qc-sheet 和 continuity QC；前三张只是质量闸门，不是交付终点，通过后继续剩余图片。")
+    print_fn("Next: 先生成前 3 张作为质量闸门；对内置 image_gen，先把下一张 keypose prompt 作为本轮最终动作生成；下一轮保存/导出本地文件后再运行 accept-generated、qc-sheet 和 preview/build。")
     print_fn(plan["image_handoff"]["accept_generated_command"])
     print_fn(plan["processor_command"])
     return plan
@@ -3394,6 +3528,7 @@ def main(argv: list[str] | None = None) -> int:
     plan_parser.add_argument("--keypose-layout", default=DEFAULT_KEYPOSE_LAYOUT, choices=sorted(KEYPOSE_LAYOUTS))
     plan_parser.add_argument("--render-frame-count", type=int, default=DEFAULT_RENDER_FRAME_COUNT)
     plan_parser.add_argument("--quality-mode", default="submission", choices=sorted(QUALITY_MODES))
+    plan_parser.add_argument("--image-provider", default=DEFAULT_IMAGE_PROVIDER, choices=sorted(IMAGE_PROVIDERS))
     plan_parser.add_argument("--output", required=True, type=Path)
 
     accept_parser = sub.add_parser("accept-generated", help="Persist an image_gen result under the planned raw filename.")
@@ -3498,6 +3633,7 @@ def main(argv: list[str] | None = None) -> int:
                 source_mode=args.source_mode,
                 keypose_layout=args.keypose_layout,
                 render_frame_count=args.render_frame_count,
+                image_provider=args.image_provider,
             )
             write_plan(args.output, plan)
             return 0

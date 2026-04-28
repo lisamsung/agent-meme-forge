@@ -1,6 +1,6 @@
 # Prompt Rules
 
-The model should produce clean visual material only. Captions are added by the deterministic processor so Chinese text stays readable and consistent. The agent MUST actively call `image_gen` when the user asked for actual sticker generation; the local script plans prompts and postprocesses files, but it does not replace the image model. Do not stop after plan generation unless image tooling is unavailable. The product rule is strict: if it is only cute or decorative and nobody would send it in chat, reject it.
+The model should produce clean visual material only. Captions are added by the deterministic processor so Chinese text stays readable and consistent. The local script plans prompts and postprocesses files, but it does not replace the image model. Codex built-in `image_gen` is a terminal action, not a same-turn pipeline step: do not assume the agent can call `image_gen` and then immediately run local QC in the same turn. The product rule is strict: if it is only cute or decorative and nobody would send it in chat, reject it.
 
 ## Character Card Prompt
 
@@ -23,20 +23,20 @@ When the user gives only a phrase such as “做一个 Claude 气质的 AI 吉�
 warm geometric AI assistant mascot with cream body, coral accents, friendly abstract face, tiny paper-stack anxiety, original character, no official logo, no brand mark
 ```
 
-Then run `meme_pack.py plan-pack` and use its `image_prompts` with built-in `image_gen`. This is the prompt-engineering loop:
+Then run `meme_pack.py plan-pack` and use its `image_prompts` with the selected provider. For the default `codex_builtin_image_gen` provider, image generation is a terminal handoff and local acceptance/QC resumes in the next turn after a saved local file is available. This is the prompt-engineering loop:
 
 1. concept -> character card
 2. persona -> sendable meme list
 3. meme item -> no-text keypose sheet prompt
 4. sendability gate -> reuse trigger, emotional value, creative hook, visual gag
-5. `image_gen` -> one semantic 4-keypose sheet per sticker
-6. `accept-generated` -> copy the saved image_gen result to the planned `raw_image_filename` and update `generated-index.json`
+5. provider generates one semantic 4-keypose sheet per sticker
+6. `accept-generated` -> copy the saved provider result to the planned `raw_image_filename` and update `generated-index.json`
 7. `qc-sheet --source-mode keyposes --source-layout 2x2 --quality-mode submission` -> reject bad keypose sheets before batch generation
 8. `build-pack --source-mode keyposes --keypose-layout 2x2 --render-frame-count 16 --strict-qc --strict-continuity-qc` -> local motion rendering, Chinese captions, GIF loops, WeChat package
 
 A `2x2` source image is an intermediate raw keypose sheet, not the final deliverable. The final handoff should show `preview.html`, `named-gifs/*.gif`, and `wechat-submit/main/*.gif`; raw keypose PNGs are for QC and debugging only.
 
-The first 3 are a QC checkpoint, not a stopping point. For a full pack, the agent must continue to the remaining prompts in the same workflow after the first-3 preview passes QC, then run the full pack build.
+The first 3 are a QC checkpoint, not a stopping point. For a full pack, continue after the first-3 preview passes QC, then run the full pack build. With built-in Codex `image_gen`, this happens across turns; same-turn continuation is only for `external_files`, `ai_studio_hermes`, or another provider that already exposes local files.
 
 ## Raw Image Prompt Pattern
 
@@ -179,7 +179,7 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py build-preview \
   --strict-continuity-qc
 ```
 
-If `image_gen` only returns a chat attachment, save/export it to a local file before running `accept-generated`; QC and build commands cannot read an unsaved attachment. If QC fails, regenerate with a stricter prompt: larger face, fewer props, more margin, same bounding box, same pixel scale, no checkerboard, no separator lines, pure `#FF00FF` background or verified real-alpha transparent PNG only.
+If built-in Codex `image_gen` is used, treat the call as terminal action: generate the next keypose sheet as the final action, then resume in the next turn after the image is saved/exported to a local file. QC and build commands cannot read an unsaved attachment. If QC fails, regenerate with a stricter prompt: larger face, fewer props, more margin, same bounding box, same pixel scale, no checkerboard, no separator lines, pure `#FF00FF` background or verified real-alpha transparent PNG only.
 
 If the user requested a complete 16/24-pack, do not end the task after the first-3 preview. The preview only decides whether to continue, regenerate, or revise the plan; it is not the full pack deliverable.
 
