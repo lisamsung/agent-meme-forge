@@ -9,12 +9,12 @@
 [![Live demo](https://img.shields.io/badge/demo-GitHub%20Pages-2563eb.svg)](https://lisamsung.github.io/agent-meme-forge/)
 
 <p align="center">
-  <img src="docs/assets/ai-mascot-shoudao-lixian.gif" alt="收到离线" width="180" />
-  <img src="docs/assets/ai-mascot-jiazaizhong.gif" alt="加载中" width="180" />
-  <img src="docs/assets/ai-mascot-wenxianshan.gif" alt="文献山" width="180" />
+  <img src="docs/assets/ai-mascot-shoudao-lixian.gif" alt="HR已读" width="180" />
+  <img src="docs/assets/ai-mascot-jiazaizhong.gif" alt="录用快来" width="180" />
+  <img src="docs/assets/ai-mascot-wenxianshan.gif" alt="先睡为敬" width="180" />
 </p>
 
-<p align="center"><sub>来自一组 24 张包的样例：<code>soul_offline</code>、<code>loading_loop</code> 和打工人崩溃反应。都是从 4 张 keypose 干净源图，本地渲染成 16 帧 240×240 GIF。</sub></p>
+<p align="center"><sub>来自 <code>法律硕士毕业求职人</code> 24 张包里的三张：HR 已读不回、求一个 offer 显灵、躺平先睡。都是从 4 张 keypose 干净源图，本地渲染成 16 帧 240×240 GIF。</sub></p>
 
 ---
 

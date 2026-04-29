@@ -9,12 +9,12 @@
 [![Live demo](https://img.shields.io/badge/demo-GitHub%20Pages-2563eb.svg)](https://lisamsung.github.io/agent-meme-forge/)
 
 <p align="center">
-  <img src="docs/assets/ai-mascot-shoudao-lixian.gif" alt="收到离线" width="180" />
-  <img src="docs/assets/ai-mascot-jiazaizhong.gif" alt="加载中" width="180" />
-  <img src="docs/assets/ai-mascot-wenxianshan.gif" alt="文献山" width="180" />
+  <img src="docs/assets/ai-mascot-shoudao-lixian.gif" alt="HR已读" width="180" />
+  <img src="docs/assets/ai-mascot-jiazaizhong.gif" alt="录用快来" width="180" />
+  <img src="docs/assets/ai-mascot-wenxianshan.gif" alt="先睡为敬" width="180" />
 </p>
 
-<p align="center"><sub>Three sample stickers from a 24-pack: <code>soul_offline</code>, <code>loading_loop</code>, and a workplace meltdown reaction. All produced from clean 4-keypose sheets and rendered locally to 16-frame 240×240 GIFs.</sub></p>
+<p align="center"><sub>Three stickers from a 24-pack for <code>法律硕士毕业求职人</code>: HR-read silence, summoning an offer, and giving up to sleep. All produced from clean 4-keypose sheets and rendered locally to 16-frame 240×240 GIFs.</sub></p>
 
 ---
 
