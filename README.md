@@ -16,6 +16,17 @@ Every planned sticker now carries a sendability gate: reuse trigger, emotional v
 - Human-readable GIF names in `named-gifs/`.
 - Upload-safe numbered files in `wechat-submit/`.
 - Thumbnails, cover, icon, banner, `manifest.json`, and `manifest.csv`.
+- A Playwright + Microsoft Edge runbook for optional last-mile submission to WeChat Sticker Open Platform.
+
+## WeChat Platform Upload
+
+The skill builds a local upload package first. If the user explicitly asks to submit it to WeChat, use `skills/generate-meme-gif-pack/references/wechat-platform-upload.md`:
+
+- Open `sticker.weixin.qq.com` with Playwright CLI, headed Microsoft Edge, and a persistent profile.
+- Let the user scan the QR code; stop for CAPTCHA, real-name, payment, or unexpected legal prompts.
+- Upload files with Playwright `setInputFiles`, not OS file-picker automation.
+- Save, verify metadata, then click `提交` only after the user authorizes submission.
+- If review rejects the pack, follow the rejection page exactly, save the corrected metadata, and resubmit.
 
 ## Install
 

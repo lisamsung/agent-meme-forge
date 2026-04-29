@@ -11,7 +11,16 @@ This skill targets WeChat Sticker Open Platform album uploads, not ordinary publ
 - Album icon PNG: one `50x50`, transparent background, below `30KB`.
 - Cover PNG: one `240x240`, transparent background, below `80KB`.
 - Detail banner PNG: one `750x400`, below `80KB`, no text.
+- Optional reward guide image: one `750x560` JPG, PNG, or GIF when `接受赞赏` is enabled.
+- Optional reward thanks image: one `750x750` JPG, PNG, or GIF when `接受赞赏` is enabled.
 - Submission quality mode: `--quality-mode submission --strict-qc`, defaulting to real `2x4` eight-frame motion sheets. Use `4x4` sixteen-frame sheets for selected high-performance stickers when continuity or pose acting matters and the final GIF still stays below the size limit.
+
+## Platform Metadata Review Pitfalls
+
+- `版权归属` is the copyright attribution subject, not a yes/no originality field. Do not write only `原创`; use the actual rights-holder, platform account, or legal subject name. If the user has not given that name, ask before submitting.
+- `角色/内容` should describe the visible subject rather than the drawing style. For a stylized person or photo-derived female character, choose `人物角色 - 女人`; for a male subject choose the matching `人物角色` subtype. Use `动漫/漫画/卡通人物` only for a genuinely original comic/cartoon character.
+- If the user asks to accept rewards, enable `接受赞赏` only after preparing all required reward fields: a 5-15 character `赞赏引导语`, a `750x560` `赞赏引导图`, and a `750x750` `赞赏致谢图`.
+- When WeChat rejects a submission, the rejection page is the current source of truth. Fix the exact rejected fields, save, confirm the preview metadata changed, and resubmit without regenerating the pack unless the rejection mentions image assets.
 
 ## Practical Constraints
 
@@ -33,6 +42,8 @@ The script writes both upload-safe and user-friendly names:
 - `wechat-submit/main/01.gif`: official upload sequence.
 - `wechat-submit/thumbs/01.png`: matching thumbnail.
 - `named-gifs/收到离线.gif`: readable sharing filename.
+- `wechat-submit/reward-guide.png`: optional `750x560` reward guide image for `接受赞赏`.
+- `wechat-submit/reward-thanks.png`: optional `750x750` reward thanks image for `接受赞赏`.
 - `manifest.csv`: spreadsheet-friendly upload and review table.
 - `manifest.json`: complete machine-readable build manifest.
 - `qc_report.json`: per-source motion-sheet quality gate with background mode, edge touch, bbox drift, warnings, and errors.

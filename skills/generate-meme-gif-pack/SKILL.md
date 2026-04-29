@@ -71,11 +71,14 @@ If the user asks for 18 and wants WeChat upload, explain that WeChat albums use 
 - The first 3 are a QC checkpoint, not a stopping point. If the user requested a full pack, do not end the task after the first-3 preview. With built-in `image_gen`, continue across turns after each exported file is available; only `external_files` or `ai_studio_hermes` may continue to the remaining prompts in the same workflow.
 - For WeChat submission, use `--quality-mode submission --strict-qc`. Single-image `single_bounce` output is preview-only.
 - WeChat output must include numbered upload files and readable named GIF files.
+- WeChat platform upload is an optional last-mile workflow. When the user explicitly asks to submit to the WeChat Sticker Open Platform, read `references/wechat-platform-upload.md` and use Playwright with headed Microsoft Edge plus the user's QR-login session. Do not use unofficial WeChat APIs. If an in-app browser automation tool is blocked on `sticker.weixin.qq.com`, fall back to Playwright CLI.
+- Before final platform submission, verify metadata: `版权归属` must be the actual rights-holder/account/legal subject name, not only `原创`; photo-derived or portrait-like female subjects should use `人物角色 - 女人`; if `接受赞赏` is enabled, fill the reward prompt and upload the reward guide and thanks images.
 
 ## Workflow
 
 1. Read references:
    - `references/wechat-spec.md` for output constraints.
+   - `references/wechat-platform-upload.md` for optional browser submission to WeChat.
    - `references/personas.md` and `references/meme-library.md` for pack planning.
    - `references/styles.md` and `references/prompt-rules.md` for visual prompts.
 2. Choose interactively or create a plan. For a guided command-line flow:
@@ -206,6 +209,11 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py build-pack \
    - Inspect `qc_report.json`: every item should be `pass` for submission, and every item’s `continuity_qc_status` should be `pass`; `prop_position_jump`, `prop_area_jump`, `face_shape_drift_score`, and `max_head_center_step_px` should stay below the template thresholds.
    - Reject weak jokes. Replace any entry that is only decorative or has no obvious send scenario.
    - Reject any GIF that is visually polished but not useful as a chat reply.
+8. Optional WeChat platform upload:
+   - Only do this when the user asks to submit or upload to WeChat Sticker Open Platform.
+   - Use the Playwright runbook in `references/wechat-platform-upload.md`.
+   - Stop for user-owned boundaries such as QR login, CAPTCHA, real-name/payment-account prompts, or any unexpected legal confirmation.
+   - Save first, confirm the metadata changed in the preview, then click `提交` when the user has authorized submission.
 
 ## Output
 
@@ -219,6 +227,8 @@ output/my-pack/
   wechat-submit/cover.png
   wechat-submit/icon.png
   wechat-submit/banner.png
+  wechat-submit/reward-guide.png    # optional when accepting rewards
+  wechat-submit/reward-thanks.png   # optional when accepting rewards
   manifest.json
   manifest.csv
   qc_report.json

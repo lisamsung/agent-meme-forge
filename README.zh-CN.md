@@ -252,8 +252,21 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
 - 图标 PNG：`50x50`，透明背景，小于 `30KB`。
 - 封面 PNG：`240x240`，透明背景，小于 `80KB`。
 - 横幅 PNG：`750x400`，小于 `80KB`，不放文字。
+- 接受赞赏时还需要：`750x560` 赞赏引导图、`750x750` 赞赏致谢图，以及 5-15 字赞赏引导语。
 
 具体以微信表情开放平台当前官方说明为准。
+
+## 微信后台提交
+
+本 skill 默认先产出本地上传包。只有用户明确要求“提交到微信表情开放平台”时，才走浏览器自动化提交。
+
+- runbook：`skills/generate-meme-gif-pack/references/wechat-platform-upload.md`
+- 工具：Playwright CLI + headed Microsoft Edge + persistent profile。
+- 登录：用户扫码；遇到 CAPTCHA、实名、支付账户、法律确认等边界时停下来让用户处理。
+- 上传：用 Playwright `setInputFiles` 上传 `wechat-submit/main/*.gif`、`banner.png`、`cover.png`、`icon.png`，不要操作系统文件选择器。
+- 字段：`版权归属` 填主体名，不要只写 `原创`；真人/照片参考女性形象选 `人物角色 - 女人`。
+- 赞赏：勾选 `接受赞赏` 后必须补齐赞赏引导语、赞赏引导图、赞赏致谢图。
+- 驳回：按审核驳回页面原文修字段，保存确认预览更新后再重新提交。
 
 ## 投稿前检查
 

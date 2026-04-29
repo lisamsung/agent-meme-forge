@@ -54,6 +54,7 @@ def test_skill_frontmatter_and_hard_rules_are_present():
 def test_references_cover_wechat_prompt_persona_and_humor():
     expected = [
         "wechat-spec.md",
+        "wechat-platform-upload.md",
         "prompt-rules.md",
         "styles.md",
         "personas.md",
@@ -65,6 +66,34 @@ def test_references_cover_wechat_prompt_persona_and_humor():
         assert path.exists(), filename
         text = path.read_text(encoding="utf-8")
         assert len(text) > 300
+
+
+def test_wechat_platform_upload_runbook_is_documented():
+    skill_text = SKILL.read_text(encoding="utf-8")
+    upload_text = (REFERENCES / "wechat-platform-upload.md").read_text(encoding="utf-8")
+    combined = skill_text + "\n" + upload_text
+
+    assert "Playwright" in combined
+    assert "Microsoft Edge" in combined
+    assert "sticker.weixin.qq.com" in combined
+    assert "--browser msedge" in combined
+    assert "--persistent" in combined
+    assert "扫码" in combined
+    assert "setInputFiles" in combined
+    assert "wechat-submit/main" in combined
+    assert "banner.png" in combined
+    assert "cover.png" in combined
+    assert "icon.png" in combined
+    assert "版权归属" in combined
+    assert "人物角色 - 女人" in combined
+    assert "接受赞赏" in combined
+    assert "赞赏引导图" in combined
+    assert "赞赏致谢图" in combined
+    assert "750x560" in combined
+    assert "750x750" in combined
+    assert "保存" in combined
+    assert "提交" in combined
+    assert "审核驳回" in combined
 
 
 def test_prompt_rules_support_direct_text_generation():
