@@ -248,7 +248,7 @@
             <h2>AI Mascot Sample</h2>
             <p>
               当前推荐链路会先用 text_concept 生成原创 AI 吉祥物的 2x2 keypose 提示词，
-              再调用 image_gen 为每个表情产出纯 #FF00FF 或真 alpha 的 4 个关键姿势。本地脚本会先跑 qc-sheet，
+              再用 Codex image_gen 交互生成，或用 openai_images_api 批量生成纯 #FF00FF / 真 alpha 的 4 个关键姿势。本地脚本会先跑 qc-sheet，
               再统一尺度、按 motion template 渲染 16 帧、添加本地非文字特效、跑 continuity QC、加中文梗、压成微信规格 GIF。
             </p>
             <p>
@@ -293,11 +293,17 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
   --keypose-layout 2x2 \
   --render-frame-count 16 \
   --quality-mode submission \
+  --image-provider openai_images_api \
   --output output/ai-research-plan.json
 
-# Codex built-in image_gen is a terminal action:
-# generate the next keypose sheet first, then resume accept/QC in the next turn after saving a local file.
-# external_files / ai_studio_hermes providers may continue with accept/QC in the same workflow after local files exist.
+# Automated provider path:
+python skills/generate-meme-gif-pack/scripts/meme_pack.py generate-raw-batch \
+  --plan output/ai-research-plan.json \
+  --provider openai_images_api \
+  --concurrency 3
+
+# Codex built-in image_gen is a terminal action; external_files / ai_studio_hermes
+# may continue with accept/QC in the same workflow after local files exist.
 python skills/generate-meme-gif-pack/scripts/meme_pack.py qc-sheet \
   --input raw-frames/01-收到离线-2x2.png \
   --source-mode keyposes \
@@ -350,7 +356,7 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py qc-sheet \
             <div class="pill"><strong>Icon</strong> 50x50 PNG, transparent</div>
             <div class="pill"><strong>Cover</strong> 240x240 PNG, transparent</div>
             <div class="pill"><strong>Banner</strong> 750x400 PNG, no text</div>
-            <div class="pill"><strong>Reward</strong> 750x560 guide, 750x750 thanks, 5-15 char prompt</div>
+            <div class="pill"><strong>Reward</strong> user-provided 750x560 guide, 750x750 thanks, 5-15 char prompt</div>
             <div class="pill"><strong>Album</strong> 16 or 24 animated stickers</div>
             <div class="pill"><strong>Upload</strong> Playwright + Microsoft Edge for sticker.weixin.qq.com</div>
             <div class="pill"><strong>Submit</strong> setInputFiles, save first, submit after user authorization</div>

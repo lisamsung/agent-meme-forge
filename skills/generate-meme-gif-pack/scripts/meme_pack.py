@@ -5,9 +5,11 @@ import csv
 import html as html_lib
 import json
 import math
+import os
 import re
 import shlex
 import shutil
+import subprocess
 import sys
 from collections import deque
 from dataclasses import asdict, dataclass
@@ -92,10 +94,12 @@ MOTION_PROFILES = {"micro", "standard", "action"}
 SOURCE_MODES = {"keyposes", "motion_sheet", "single_bounce"}
 DEFAULT_SOURCE_MODE = "keyposes"
 IMAGE_PROVIDER_CODEX_BUILTIN = "codex_builtin_image_gen"
+IMAGE_PROVIDER_OPENAI_IMAGES_API = "openai_images_api"
 IMAGE_PROVIDER_EXTERNAL_FILES = "external_files"
 IMAGE_PROVIDER_AI_STUDIO_HERMES = "ai_studio_hermes"
 IMAGE_PROVIDERS = {
     IMAGE_PROVIDER_CODEX_BUILTIN,
+    IMAGE_PROVIDER_OPENAI_IMAGES_API,
     IMAGE_PROVIDER_EXTERNAL_FILES,
     IMAGE_PROVIDER_AI_STUDIO_HERMES,
 }
@@ -104,6 +108,10 @@ IMAGE_PROVIDER_ALIASES = {
     "codex_builtin": IMAGE_PROVIDER_CODEX_BUILTIN,
     "image_gen": IMAGE_PROVIDER_CODEX_BUILTIN,
     "builtin": IMAGE_PROVIDER_CODEX_BUILTIN,
+    "openai": IMAGE_PROVIDER_OPENAI_IMAGES_API,
+    "openai_api": IMAGE_PROVIDER_OPENAI_IMAGES_API,
+    "openai_images": IMAGE_PROVIDER_OPENAI_IMAGES_API,
+    "openai_images_api": IMAGE_PROVIDER_OPENAI_IMAGES_API,
     "external": IMAGE_PROVIDER_EXTERNAL_FILES,
     "external_batch": IMAGE_PROVIDER_EXTERNAL_FILES,
     "external_files": IMAGE_PROVIDER_EXTERNAL_FILES,
@@ -404,6 +412,24 @@ def parse_image_provider(image_provider: str) -> str:
             f"Unsupported image_provider '{image_provider}'. Use one of: {', '.join(sorted(IMAGE_PROVIDERS))}."
         )
     return normalized
+
+
+def default_imagegen_cli_path() -> Path:
+    candidates: list[Path] = []
+    codex_home = os.environ.get("CODEX_HOME")
+    if codex_home:
+        candidates.append(Path(codex_home) / "skills" / ".system" / "imagegen" / "scripts" / "image_gen.py")
+    home = Path.home()
+    candidates.extend(
+        [
+            home / ".codex-switcher" / "skills" / ".system" / "imagegen" / "scripts" / "image_gen.py",
+            home / ".codex" / "skills" / ".system" / "imagegen" / "scripts" / "image_gen.py",
+        ]
+    )
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0] if candidates else Path("image_gen.py")
 
 
 def parse_keypose_layout(layout: str) -> str:
@@ -1175,6 +1201,17 @@ def plan_pack(
         "strict QC or continuity QC fails repeatedly after regeneration attempts and user decision is needed",
         "the user explicitly pauses or changes the task",
     ]
+    generate_raw_batch_command_args = [
+        "python",
+        "skills/generate-meme-gif-pack/scripts/meme_pack.py",
+        "generate-raw-batch",
+        "--plan",
+        "output/<plan-json>",
+        "--provider",
+        IMAGE_PROVIDER_OPENAI_IMAGES_API,
+        "--concurrency",
+        "3",
+    ]
     if image_provider == IMAGE_PROVIDER_CODEX_BUILTIN:
         requires_agent_tooling = {
             "image_generation_tool": "image_gen",
@@ -1239,6 +1276,47 @@ def plan_pack(
             "Replace any weak joke before generation: every sticker must pass meme_quality_bar and image_prompts[].sendability_gate; if it is only cute or decorative, rewrite the caption, scene, visual gag, and motion.",
             "Reject and regenerate any raw sheet that contains text, speech bubbles, official logos, brand marks, wrong grid count, a tiny face, edge-crossing props, or a character that drifts from the character card.",
             f"After all planned raw sheets are accepted, run meme_pack.py build-pack with --source-mode {source_mode} --source-layout {source_layout} --quality-mode {quality_mode} --strict-qc --strict-continuity-qc plus the same persona, style, pack_size, mode, and pack_name.",
+        ]
+    elif image_provider == IMAGE_PROVIDER_OPENAI_IMAGES_API:
+        requires_agent_tooling = {
+            "image_generation_tool": image_provider,
+            "local_processor": "scripts/meme_pack.py",
+            "provider_mode": "scriptable_api",
+            "same_turn_postprocess_supported": True,
+            "tool_boundary": (
+                "This provider is scriptable. generate-raw-batch reads plan image_prompts, calls the "
+                "configured image generation CLI/API, writes planned raw filenames, records "
+                "generated-index.json, then the local processor can QC/build in the same workflow."
+            ),
+        }
+        image_handoff = {
+            "tool_output_requirement": (
+                "Run generate-raw-batch to create local raw PNG files from every planned image_prompt, "
+                "then run build-preview or build-pack."
+            ),
+            "generate_raw_batch_command": shell_join(generate_raw_batch_command_args),
+            "accept_generated_command": shell_join(accept_generated_command_args),
+            "index_file": f"{raw_output_dir}/generated-index.json",
+            "blocked_without_local_file": False,
+            "terminal_action": False,
+            "same_turn_postprocessing": True,
+        }
+        workflow_contract = {
+            "first_three_policy": "The first 3 are a QC checkpoint, not a stopping point.",
+            "continue_after_preview": (
+                "Use generate-raw-batch for scriptable generation, inspect/build the first-3 preview, "
+                "then continue to the remaining planned prompts or the full build in the same workflow."
+            ),
+            "completion_definition": completion_definition,
+            "same_turn_continuation": True,
+            "allowed_pause_conditions": base_pause_conditions,
+        }
+        agent_instructions = [
+            "Use meme_pack.py generate-raw-batch with the plan JSON to generate planned raw keypose PNGs through the OpenAI Images API provider. Do not use Codex built-in image_gen for this automated provider path.",
+            "For a cautious first pass, generate and inspect the first 3 planned prompts before the full pack; for fully automated runs, keep regenerate-on-fail behavior and continue until all planned raw files exist.",
+            f"Run meme_pack.py qc-sheet --source-mode {source_mode} --source-layout {source_layout} --quality-mode {quality_mode} on accepted sheets and regenerate any fail or weak warning using regenerate_hint.",
+            f"{first_three_instruction} After QC passes, continue to the remaining prompts in the same workflow.",
+            f"After raw sheets are generated, run meme_pack.py build-pack with --source-mode {source_mode} --source-layout {source_layout} --quality-mode {quality_mode} --strict-qc --strict-continuity-qc plus the same persona, style, pack_size, mode, and pack_name.",
         ]
     else:
         requires_agent_tooling = {
@@ -3332,6 +3410,104 @@ def accept_generated_image(plan_path: Path, index: int, image_path: Path, source
     return record
 
 
+def imagegen_batch_jobs(plan: dict, limit: int | None = None) -> list[dict]:
+    jobs: list[dict] = []
+    prompts = plan.get("image_prompts") or []
+    for prompt in prompts[:limit]:
+        raw_filename = prompt.get("raw_image_filename")
+        text = prompt.get("prompt")
+        if not raw_filename:
+            raise ValueError("Every image_prompt must include raw_image_filename for generate-raw-batch.")
+        if not text:
+            raise ValueError(f"{raw_filename} is missing prompt text.")
+        jobs.append({"prompt": text, "out": raw_filename})
+    if not jobs:
+        raise ValueError("Plan contains no image_prompts.")
+    return jobs
+
+
+def write_imagegen_batch_jsonl(path: Path, jobs: list[dict]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(json.dumps(job, ensure_ascii=False) for job in jobs) + "\n", encoding="utf-8")
+
+
+def generate_raw_batch(
+    plan_path: Path,
+    provider: str = IMAGE_PROVIDER_OPENAI_IMAGES_API,
+    imagegen_cli: Path | None = None,
+    source_dir: Path | None = None,
+    limit: int | None = None,
+    model: str = "gpt-image-2",
+    quality: str = "medium",
+    size: str = "1024x1024",
+    output_format: str = "png",
+    background: str = "opaque",
+    concurrency: int = 3,
+    max_attempts: int = 2,
+    force: bool = False,
+    dry_run: bool = False,
+) -> dict:
+    provider = parse_image_provider(provider)
+    if provider != IMAGE_PROVIDER_OPENAI_IMAGES_API:
+        raise ValueError("generate-raw-batch currently supports --provider openai_images_api.")
+    if not plan_path.exists():
+        raise ValueError(f"Plan JSON not found: {plan_path}")
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    raw_dir = source_dir or Path(plan.get("raw_output_dir") or "output/raw-frames")
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    jobs = imagegen_batch_jobs(plan, limit=limit)
+    jobs_path = raw_dir / "_imagegen-batch.jsonl"
+    write_imagegen_batch_jsonl(jobs_path, jobs)
+    cli = imagegen_cli or default_imagegen_cli_path()
+    if not cli.exists():
+        raise ValueError(f"image_gen.py CLI not found: {cli}")
+
+    command = [
+        sys.executable,
+        str(cli),
+        "generate-batch",
+        "--input",
+        str(jobs_path),
+        "--out-dir",
+        str(raw_dir),
+        "--model",
+        model,
+        "--quality",
+        quality,
+        "--size",
+        size,
+        "--output-format",
+        output_format,
+        "--background",
+        background,
+        "--concurrency",
+        str(concurrency),
+        "--max-attempts",
+        str(max_attempts),
+    ]
+    if force:
+        command.append("--force")
+    if dry_run:
+        command.append("--dry-run")
+    subprocess.run(command, check=True)
+
+    accepted: list[dict] = []
+    if not dry_run:
+        for index, job in enumerate(jobs, start=1):
+            generated = raw_dir / job["out"]
+            accepted.append(accept_generated_image(plan_path, index, generated, raw_dir))
+    return {
+        "provider": provider,
+        "plan": str(plan_path),
+        "source_dir": str(raw_dir),
+        "jobs": len(jobs),
+        "jobs_jsonl": str(jobs_path),
+        "dry_run": dry_run,
+        "accepted": accepted,
+        "command": command,
+    }
+
+
 def load_entries(path: Path) -> list[MemeEntry]:
     data = json.loads(path.read_text(encoding="utf-8"))
     return [MemeEntry(**item) for item in data]
@@ -3459,7 +3635,7 @@ def run_plan_wizard(input_fn=input, print_fn=print) -> dict:
     )
     image_provider = _prompt_choice(
         "Step 7: choose image provider",
-        [DEFAULT_IMAGE_PROVIDER, IMAGE_PROVIDER_EXTERNAL_FILES, IMAGE_PROVIDER_AI_STUDIO_HERMES],
+        [DEFAULT_IMAGE_PROVIDER, IMAGE_PROVIDER_OPENAI_IMAGES_API, IMAGE_PROVIDER_EXTERNAL_FILES, IMAGE_PROVIDER_AI_STUDIO_HERMES],
         default_index=0,
         input_fn=input_fn,
         print_fn=print_fn,
@@ -3540,6 +3716,22 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         help="Raw frame directory. Defaults to raw_output_dir from the plan JSON.",
     )
+
+    batch_parser = sub.add_parser("generate-raw-batch", help="Generate planned raw keypose PNGs with a scriptable image provider.")
+    batch_parser.add_argument("--plan", required=True, type=Path, help="Plan JSON written by plan-pack or plan-wizard.")
+    batch_parser.add_argument("--provider", default=IMAGE_PROVIDER_OPENAI_IMAGES_API, choices=[IMAGE_PROVIDER_OPENAI_IMAGES_API])
+    batch_parser.add_argument("--imagegen-cli", type=Path, help="Path to the system imagegen scripts/image_gen.py CLI.")
+    batch_parser.add_argument("--source-dir", type=Path, help="Raw frame directory. Defaults to raw_output_dir from the plan JSON.")
+    batch_parser.add_argument("--limit", type=int, help="Generate only the first N image prompts.")
+    batch_parser.add_argument("--model", default="gpt-image-2")
+    batch_parser.add_argument("--quality", default="medium")
+    batch_parser.add_argument("--size", default="1024x1024")
+    batch_parser.add_argument("--output-format", default="png")
+    batch_parser.add_argument("--background", default="opaque")
+    batch_parser.add_argument("--concurrency", type=int, default=3)
+    batch_parser.add_argument("--max-attempts", type=int, default=2)
+    batch_parser.add_argument("--force", action="store_true")
+    batch_parser.add_argument("--dry-run", action="store_true")
 
     qc_parser = sub.add_parser("qc-sheet", help="Inspect a raw motion sheet before building a WeChat pack.")
     qc_parser.add_argument("--input", required=True, type=Path)
@@ -3646,6 +3838,29 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(record, ensure_ascii=False, indent=2))
             return 0
         except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+    if args.command == "generate-raw-batch":
+        try:
+            record = generate_raw_batch(
+                plan_path=args.plan,
+                provider=args.provider,
+                imagegen_cli=args.imagegen_cli,
+                source_dir=args.source_dir,
+                limit=args.limit,
+                model=args.model,
+                quality=args.quality,
+                size=args.size,
+                output_format=args.output_format,
+                background=args.background,
+                concurrency=args.concurrency,
+                max_attempts=args.max_attempts,
+                force=args.force,
+                dry_run=args.dry_run,
+            )
+            print(json.dumps(record, ensure_ascii=False, indent=2))
+            return 0
+        except (ValueError, subprocess.CalledProcessError) as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2
     if args.command == "qc-sheet":

@@ -267,6 +267,30 @@ def test_plan_pack_can_emit_external_provider_continuous_handoff():
     )
 
 
+def test_plan_pack_can_emit_openai_images_api_batch_handoff():
+    meme_pack = load_module()
+
+    plan = meme_pack.plan_pack(
+        subject="round mascot",
+        persona="码农",
+        style="clean-sticker",
+        pack_size=16,
+        mode="wechat",
+        pack_name="API Provider Pack",
+        image_provider="openai_images_api",
+    )
+
+    instructions = " ".join(plan["agent_instructions"])
+    assert plan["image_provider"] == "openai_images_api"
+    assert plan["requires_agent_tooling"]["provider_mode"] == "scriptable_api"
+    assert plan["requires_agent_tooling"]["same_turn_postprocess_supported"] is True
+    assert plan["image_handoff"]["terminal_action"] is False
+    assert "generate_raw_batch_command" in plan["image_handoff"]
+    assert "generate-raw-batch" in plan["image_handoff"]["generate_raw_batch_command"]
+    assert "Do not use Codex built-in image_gen" in instructions
+    assert plan["workflow_contract"]["same_turn_continuation"] is True
+
+
 def test_plan_pack_writes_shell_safe_commands_and_handoff():
     meme_pack = load_module()
 
@@ -603,7 +627,7 @@ def test_plan_wizard_collects_reference_image_choices(tmp_path: Path):
             "2",  # self_use
             "",  # default 18
             "3",  # preview
-            "2",  # external_files provider can continue after local files exist
+            "3",  # external_files provider can continue after local files exist
             "2",  # 1x4
             "我的测试包",
             "轻微发疯但安全",
@@ -623,6 +647,55 @@ def test_plan_wizard_collects_reference_image_choices(tmp_path: Path):
     assert plan["image_provider"] == "external_files"
     assert plan["requires_agent_tooling"]["same_turn_postprocess_supported"] is True
     assert plan["animation"]["source_layout"] == "1x4"
+
+
+def test_generate_raw_batch_writes_jsonl_and_calls_provider_cli(tmp_path: Path):
+    meme_pack = load_module()
+    plan_path = tmp_path / "plan.json"
+    raw_dir = tmp_path / "raw"
+    fake_cli = tmp_path / "fake_image_gen.py"
+    fake_cli.write_text(
+        """
+import json
+import sys
+from pathlib import Path
+
+args = sys.argv[1:]
+out_dir = Path(args[args.index('--out-dir') + 1])
+out_dir.mkdir(parents=True, exist_ok=True)
+(out_dir / 'called.txt').write_text('ok', encoding='utf-8')
+print(json.dumps({'args': args}))
+""".strip(),
+        encoding="utf-8",
+    )
+
+    plan = meme_pack.plan_pack(
+        subject="round mascot",
+        persona="科研打工人",
+        style="clean-sticker",
+        pack_size=16,
+        mode="wechat",
+        pack_name="Batch Test",
+        image_provider="openai_images_api",
+    )
+    meme_pack.write_plan(plan_path, plan)
+
+    record = meme_pack.generate_raw_batch(
+        plan_path=plan_path,
+        imagegen_cli=fake_cli,
+        source_dir=raw_dir,
+        limit=2,
+        dry_run=True,
+    )
+
+    jobs = (raw_dir / "_imagegen-batch.jsonl").read_text(encoding="utf-8").splitlines()
+    first_job = json.loads(jobs[0])
+    assert record["dry_run"] is True
+    assert record["jobs"] == 2
+    assert len(jobs) == 2
+    assert first_job["out"] == plan["image_prompts"][0]["raw_image_filename"]
+    assert first_job["prompt"] == plan["image_prompts"][0]["prompt"]
+    assert (raw_dir / "called.txt").exists()
 
 
 def test_split_sheet_writes_numbered_transparent_cells(tmp_path: Path):

@@ -65,11 +65,11 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-wizard
 - 选择画面风格：清爽贴纸、像素风、Q 版、办公室漫画等。
 - 选择微信投稿包或自用包，以及 16/24/18 数量。
 - 选择质量模式：`submission`、`standard`、`preview`。
-- 选择生图 provider：默认 `codex_builtin_image_gen` 是“生成后本轮结束”的 Codex 内置生图；`external_files` / `ai_studio_hermes` 适合已经能导出本地文件、可继续跑 QC 的外部流程。
+- 选择生图 provider：默认 `codex_builtin_image_gen` 是“生成后本轮结束”的 Codex 内置生图；`openai_images_api` 适合自动化批量生成；`external_files` / `ai_studio_hermes` 适合已经能导出本地文件、可继续跑 QC 的外部流程。
 - 选择源图模式：默认 `2x2` keypose / 本地 16 帧渲染；专家模式可以选 `2x4` 或 `4x4` motion sheet。
 - 写出计划 JSON，下一步用里面的 `image_prompts` 做生图 handoff。
 
-注意：`plan-wizard` 和 `plan-pack` 只会写计划和提示词，本地 Python 脚本不能自己调用 Codex 的生图工具。如果使用 Codex 内置 `image_gen`，它是 terminal action：调用后不要假设同一轮还能继续跑 `accept-generated`、QC 或打包。正确做法是先生成下一张 keypose sheet，下一轮保存/导出本地文件后再继续后处理。只有 `--image-provider external_files` / `ai_studio_hermes` 这类已经有本地图片文件的路线，才适合连续编排。
+注意：`plan-wizard` 和 `plan-pack` 只会写计划和提示词，本地 Python 脚本不能自己调用 Codex 的内置生图工具。如果使用 Codex 内置 `image_gen`，它是 terminal action：调用后不要假设同一轮还能继续跑 `accept-generated`、QC 或打包。要全自动，使用 `--image-provider openai_images_api` 后运行 `generate-raw-batch`；`external_files` / `ai_studio_hermes` 适合已经有本地图片文件的路线。
 
 ### 2. 或者直接生成计划和 image_gen 提示词
 
@@ -89,7 +89,17 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
   --keypose-layout 2x2 \
   --render-frame-count 16 \
   --quality-mode submission \
+  --image-provider openai_images_api \
   --output output/ai-research-plan.json
+```
+
+自动批量生成 raw keypose 图：
+
+```bash
+python skills/generate-meme-gif-pack/scripts/meme_pack.py generate-raw-batch \
+  --plan output/ai-research-plan.json \
+  --provider openai_images_api \
+  --concurrency 3
 ```
 
 如果你明确想走旧的完整 motion sheet 路线，可以手动切到 legacy/expert 模式：
@@ -252,7 +262,7 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
 - 图标 PNG：`50x50`，透明背景，小于 `30KB`。
 - 封面 PNG：`240x240`，透明背景，小于 `80KB`。
 - 横幅 PNG：`750x400`，小于 `80KB`，不放文字。
-- 接受赞赏时还需要：`750x560` 赞赏引导图、`750x750` 赞赏致谢图，以及 5-15 字赞赏引导语。
+- 接受赞赏时还需要用户提供或单独准备：`750x560` 赞赏引导图、`750x750` 赞赏致谢图，以及 5-15 字赞赏引导语；当前打包器不会自动生成赞赏图。
 
 具体以微信表情开放平台当前官方说明为准。
 
@@ -265,7 +275,7 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
 - 登录：用户扫码；遇到 CAPTCHA、实名、支付账户、法律确认等边界时停下来让用户处理。
 - 上传：用 Playwright `setInputFiles` 上传 `wechat-submit/main/*.gif`、`banner.png`、`cover.png`、`icon.png`，不要操作系统文件选择器。
 - 字段：`版权归属` 填主体名，不要只写 `原创`；真人/照片参考女性形象选 `人物角色 - 女人`。
-- 赞赏：勾选 `接受赞赏` 后必须补齐赞赏引导语、赞赏引导图、赞赏致谢图。
+- 赞赏：勾选 `接受赞赏` 前先确认赞赏引导语、赞赏引导图、赞赏致谢图都已经存在；当前打包器不会自动生成这些图。
 - 驳回：按审核驳回页面原文修字段，保存确认预览更新后再重新提交。
 
 ## 投稿前检查

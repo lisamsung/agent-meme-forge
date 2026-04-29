@@ -53,7 +53,7 @@ For a guided intake that asks whether to use a reference image or text concept, 
 python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-wizard
 ```
 
-Or create a prompt plan directly, then use the generated no-text prompts with your selected image provider. The default `codex_builtin_image_gen` provider is a terminal action in Codex: call it as the final action for the current turn, then resume local acceptance/QC in the next turn after the image has been saved/exported. Use `external_files` or `ai_studio_hermes` only when a provider already gives you local files for same-workflow processing.
+Or create a prompt plan directly, then use the generated no-text prompts with your selected image provider. The default `codex_builtin_image_gen` provider is a terminal action in Codex: call it as the final action for the current turn, then resume local acceptance/QC in the next turn after the image has been saved/exported. Use `openai_images_api` for automated batch generation, or `external_files` / `ai_studio_hermes` when a provider already gives you local files for same-workflow processing.
 
 ```bash
 python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
@@ -66,7 +66,17 @@ python skills/generate-meme-gif-pack/scripts/meme_pack.py plan-pack \
   --keypose-layout 2x2 \
   --render-frame-count 16 \
   --quality-mode submission \
+  --image-provider openai_images_api \
   --output output/ai-research-plan.json
+```
+
+For an automated API-backed raw image pass:
+
+```bash
+python skills/generate-meme-gif-pack/scripts/meme_pack.py generate-raw-batch \
+  --plan output/ai-research-plan.json \
+  --provider openai_images_api \
+  --concurrency 3
 ```
 
 Generate and QC the first 3 sheets before making the full pack. With built-in Codex `image_gen`, generate one keypose sheet as a handoff, then in the next turn save/export it to a local file and accept it into the planned raw filename:

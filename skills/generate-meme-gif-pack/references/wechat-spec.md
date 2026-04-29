@@ -13,7 +13,7 @@ This skill targets WeChat Sticker Open Platform album uploads, not ordinary publ
 - Detail banner PNG: one `750x400`, below `80KB`, no text.
 - Optional reward guide image: one `750x560` JPG, PNG, or GIF when `接受赞赏` is enabled.
 - Optional reward thanks image: one `750x750` JPG, PNG, or GIF when `接受赞赏` is enabled.
-- Submission quality mode: `--quality-mode submission --strict-qc`, defaulting to real `2x4` eight-frame motion sheets. Use `4x4` sixteen-frame sheets for selected high-performance stickers when continuity or pose acting matters and the final GIF still stays below the size limit.
+- Submission quality mode: `--quality-mode submission --strict-qc`, defaulting to `source_mode=keyposes`, `keypose_layout=2x2`, and local 16-frame rendering. Use `2x4` or `4x4` motion sheets only as legacy/expert modes when the provider can keep identity, scale, and containment stable.
 
 ## Platform Metadata Review Pitfalls
 
@@ -25,7 +25,7 @@ This skill targets WeChat Sticker Open Platform album uploads, not ordinary publ
 ## Practical Constraints
 
 - Use readable silhouettes. A 240px GIF hides subtle facial acting.
-- Use 16-frame `4x4` sheets selectively. They can smooth motion and support larger pose arcs, but they cost more image-generation effort and GIF bytes.
+- Use direct `4x4` motion sheets selectively. They can support larger pose arcs, but they often drift and cost more image-generation effort and GIF bytes; keypose-first remains the default.
 - Keep text short. Two lines is ideal; three lines is risky.
 - Avoid white or transparent-only banners; the detail page needs a bright, story-like image.
 - Keep a consistent character style across all GIFs.

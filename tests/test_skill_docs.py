@@ -12,47 +12,39 @@ def test_skill_frontmatter_and_hard_rules_are_present():
 
     assert "name: generate-meme-gif-pack" in text
     assert "Use when" in text
+    assert "TRIGGER" in text and "SKIP" in text
+    assert "generate-meme-gif-pack-ai-studio" in text
     assert "16 or 24" in text
     assert "18" in text and "self_use" in text
     assert "no text" in text.lower()
     assert "meme_pack.py" in text
     assert "text_concept" in text
     assert "image_gen" in text
-    assert "motion sheet" in text
     assert "keyposes" in text
-    assert "--strict-continuity-qc" in text
-    assert "4x4" in text
-    assert "16-frame" in text
-    assert "--source-layout" in text
-    assert "qc-sheet" in text
-    assert "accept-generated" in text
-    assert "generated-index.json" in text
     assert "plan-wizard" in text
     assert "choose" in text.lower() or "ask" in text.lower()
-    assert "--quality-mode submission" in text
-    assert "--strict-qc" in text
     assert "terminal action" in text
-    assert "same turn" in text
+    assert "openai_images_api" in text
     assert "next turn" in text
-    assert "do not try to run" in text
     assert "没人用的表情包就是垃圾表情包" in text
     assert "sendability gate" in text.lower()
-    assert "local_effects" in text
-    assert "face_shape_drift_score" in text
-    assert "prop_position_jump" in text
-    assert "Intake-first rule" in text
-    assert "explicitly said to use defaults" in text
-    assert "intermediate raw keypose sheet" in text
-    assert "not final delivery" in text
+    assert "Required Intake" in text
+    assert "Tool Boundary" in text
+    assert "Required References" in text
     assert "preview.html" in text
     assert "named-gifs" in text
-    assert "first 3 are a QC checkpoint, not a stopping point" in text
-    assert "do not end the task after the first-3 preview" in text
     assert "external_files" in text
+    assert len(text.split()) < 650
 
 
 def test_references_cover_wechat_prompt_persona_and_humor():
     expected = [
+        "agent-rules.md",
+        "commands.md",
+        "pressure-scenarios.md",
+        "qc-checklist.md",
+        "tool-boundary.md",
+        "workflow.md",
         "wechat-spec.md",
         "wechat-platform-upload.md",
         "prompt-rules.md",
@@ -91,6 +83,7 @@ def test_wechat_platform_upload_runbook_is_documented():
     assert "赞赏致谢图" in combined
     assert "750x560" in combined
     assert "750x750" in combined
+    assert "pack builder does not create reward images automatically" in combined
     assert "保存" in combined
     assert "提交" in combined
     assert "审核驳回" in combined
@@ -134,6 +127,31 @@ def test_prompt_rules_support_direct_text_generation():
     assert "full pack" in text
     assert "terminal action" in text
     assert "same-turn" in text
+
+
+def test_skill_references_hold_detailed_workflow_rules():
+    combined = "\n".join(
+        (REFERENCES / filename).read_text(encoding="utf-8")
+        for filename in [
+            "agent-rules.md",
+            "workflow.md",
+            "commands.md",
+            "qc-checklist.md",
+            "tool-boundary.md",
+            "pressure-scenarios.md",
+        ]
+    )
+
+    assert "generate-raw-batch" in combined
+    assert "openai_images_api" in combined
+    assert "--strict-continuity-qc" in combined
+    assert "first 3" in combined
+    assert "QC checkpoint" in combined
+    assert "2x2" in combined
+    assert "16-frame" in combined
+    assert "face/head" in combined
+    assert "prop position" in combined
+    assert "Google AI Studio" in combined
 
 
 def test_pages_readme_link_stays_inside_project_or_github():

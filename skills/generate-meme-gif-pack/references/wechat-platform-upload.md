@@ -41,8 +41,9 @@ Stop for user-owned boundaries: QR login, CAPTCHA, real-name verification, payme
    - 下载地区: use the user's requested region, commonly `中国大陆`.
 9. If the user wants `接受赞赏`, check it and fill the extra fields before saving:
    - `赞赏引导语`: 5-15 Chinese characters.
-   - `赞赏引导图`: upload `wechat-submit/reward-guide.png`, typically `750x560`.
-   - `赞赏致谢图`: upload `wechat-submit/reward-thanks.png`, typically `750x750`.
+   - `赞赏引导图`: upload a user-provided or separately prepared image, typically `750x560`.
+   - `赞赏致谢图`: upload a user-provided or separately prepared image, typically `750x750`.
+   - Stop if these files do not exist. The pack builder does not create reward images automatically.
 10. Click `保存`. Confirm the preview metadata shows the corrected copyright, role/content, and reward state.
 11. Click `提交` only when the user has explicitly authorized submission. Confirm the result page says `表情提交成功，请耐心等待审核`.
 
@@ -82,6 +83,7 @@ const base = "/absolute/path/to/output/my-pack/wechat-submit";
 await page.locator("input[type=file]").nth(1).setInputFiles(`${base}/banner.png`);
 await page.locator("input[type=file]").nth(2).setInputFiles(`${base}/cover.png`);
 await page.locator("input[type=file]").nth(3).setInputFiles(`${base}/icon.png`);
+// Only run these after verifying the files exist or the user provided replacements.
 await page.locator("input[type=file]").nth(4).setInputFiles(`${base}/reward-guide.png`);
 await page.locator("input[type=file]").nth(5).setInputFiles(`${base}/reward-thanks.png`);
 ```
