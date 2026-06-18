@@ -443,36 +443,79 @@ def pixel_data(image: Image.Image):
     return image.get_flattened_data() if hasattr(image, "get_flattened_data") else image.getdata()
 
 
+# --- Entry classification -------------------------------------------------
+# Several planning fields are derived by scanning an entry's text for keyword
+# groups. Keeping the keyword tables together (instead of inline in each
+# function) makes them auditable side by side and keeps related groups from
+# drifting apart. Each table is an ordered tuple of (keywords, result); the
+# first group that matches wins, mirroring the original if/elif chains.
+
+
+def _entry_text(entry: MemeEntry) -> str:
+    return f"{entry.name} {entry.text} {entry.scene} {entry.motion}".lower()
+
+
+def _classify(text: str, rules: tuple, default):
+    for keywords, result in rules:
+        if any(keyword in text for keyword in keywords):
+            return result
+    return default
+
+
+MOTION_PROFILE_RULES = (
+    (("blink", "nod", "understand", "blank", "loading"), "micro"),
+    (
+        (
+            "recoil", "jump", "hit", "swoop", "shake", "tremble", "panic",
+            "paper", "scroll", "document", "literature", "typing", "terminal",
+            "compile", "keyboard", "summon", "glow", "sparkle", "ritual",
+        ),
+        "action",
+    ),
+)
+
+MOTION_TEMPLATE_RULES = (
+    (("收到离线", "灵魂", "offline", "ghost", "fade", "sleep"), "soul_offline"),
+    (("加载", "loading", "progress", "进度条"), "loading_loop"),
+    (("装懂", "懂", "understand", "nod", "blink"), "pretend_understand"),
+    (("写", "typing", "keyboard", "terminal", "compile", "编译"), "typing_panic"),
+    (("假笑", "礼貌", "笑不出来", "smile"), "fake_smile"),
+    (("离谱", "合理", "recoil", "jump", "hit", "swoop"), "absurd_recoil"),
+    (("文献", "论文", "paper", "scroll", "document", "literature"), "paper_overflow"),
+)
+
+VISUAL_GAG_RULES = (
+    (("paper", "scroll", "document", "literature"), "papers multiply around the character until the reaction reads before the caption appears"),
+    (("typing", "terminal", "compile", "keyboard"), "tiny frantic keyboard or screen glow drives the joke without any visible text"),
+    (("shake", "tremble", "wobble", "panic"), "small stress tremble escalates into a clear peak pose, then loops back"),
+    (("droop", "flatline", "data", "chart"), "a simple chart or prop physically deflates while the character tries to stay calm"),
+    (("summon", "glow", "sparkle", "ritual"), "a tight halo or glow appears close to the character and never crosses the cell edge"),
+    (("fade", "sleep", "ghost"), "the character visibly powers down or mentally exits, then returns to loop"),
+)
+
+EMOTIONAL_VALUE_RULES = (
+    (("收到", "加载", "已读", "懂"), "low-pressure reply that buys time without sounding cold"),
+    (("离谱", "合理", "问题", "崩", "翻车", "bug"), "shared disbelief and comic relief when things go wrong"),
+    (("写", "ddl", "加班", "交", "进度", "返修"), "deadline survival humor that says I am trying but suffering"),
+    (("咖啡", "早八", "睡", "灵魂", "退场"), "energy-depleted self-mockery that is easy to send repeatedly"),
+)
+
+# animation_frames_for_entry scans only entry.motion; note "paper pile" (not bare
+# "paper") and the extra nod/recoil categories distinguish it from VISUAL_GAG_RULES.
+FRAME_PLAN_RULES = (
+    (("paper pile", "scroll", "document", "literature"), "paper"),
+    (("typing", "terminal", "compile", "keyboard"), "keyboard"),
+    (("shake", "tremble", "wobble", "panic"), "shake"),
+    (("nod", "understand", "blink"), "nod"),
+    (("recoil", "jump", "hit", "swoop"), "recoil"),
+    (("droop", "flatline", "data", "chart"), "chart"),
+    (("summon", "glow", "sparkle", "ritual"), "glow"),
+    (("fade", "sleep", "ghost"), "fade"),
+)
+
+
 def motion_profile_for_motion(motion: str) -> str:
-    normalized = motion.lower()
-    if any(token in normalized for token in ["blink", "nod", "understand", "blank", "loading"]):
-        return "micro"
-    if any(
-        token in normalized
-        for token in [
-            "recoil",
-            "jump",
-            "hit",
-            "swoop",
-            "shake",
-            "tremble",
-            "panic",
-            "paper",
-            "scroll",
-            "document",
-            "literature",
-            "typing",
-            "terminal",
-            "compile",
-            "keyboard",
-            "summon",
-            "glow",
-            "sparkle",
-            "ritual",
-        ]
-    ):
-        return "action"
-    return "standard"
+    return _classify(motion.lower(), MOTION_PROFILE_RULES, "standard")
 
 
 def alignment_mode_for_profile(motion_profile: str) -> str:
@@ -480,22 +523,7 @@ def alignment_mode_for_profile(motion_profile: str) -> str:
 
 
 def motion_template_for_entry(entry: MemeEntry) -> str:
-    text = f"{entry.name} {entry.text} {entry.scene} {entry.motion}".lower()
-    if any(token in text for token in ["收到离线", "灵魂", "offline", "ghost", "fade", "sleep"]):
-        return "soul_offline"
-    if any(token in text for token in ["加载", "loading", "progress", "进度条"]):
-        return "loading_loop"
-    if any(token in text for token in ["装懂", "懂", "understand", "nod", "blink"]):
-        return "pretend_understand"
-    if any(token in text for token in ["写", "typing", "keyboard", "terminal", "compile", "编译"]):
-        return "typing_panic"
-    if any(token in text for token in ["假笑", "礼貌", "笑不出来", "smile"]):
-        return "fake_smile"
-    if any(token in text for token in ["离谱", "合理", "recoil", "jump", "hit", "swoop"]):
-        return "absurd_recoil"
-    if any(token in text for token in ["文献", "论文", "paper", "scroll", "document", "literature"]):
-        return "paper_overflow"
-    return "steady_breath"
+    return _classify(_entry_text(entry), MOTION_TEMPLATE_RULES, "steady_breath")
 
 
 def keypose_beats_for_template(template_id: str, entry: MemeEntry) -> list[str]:
@@ -688,9 +716,9 @@ def motion_template_plan_for_entry(entry: MemeEntry, frame_count: int = DEFAULT_
 
 
 def animation_frames_for_entry(entry: MemeEntry, frame_count: int = 4) -> list[str]:
-    motion = entry.motion.lower()
     name = entry.name
-    if any(token in motion for token in ["paper pile", "scroll", "document", "literature"]):
+    category = _classify(entry.motion.lower(), FRAME_PLAN_RULES, "default")
+    if category == "paper":
         frames = [
             f"{name}: character notices one small paper stack, worried eyes",
             f"{name}: character reaches toward the paper stack with hesitation",
@@ -701,7 +729,7 @@ def animation_frames_for_entry(entry: MemeEntry, frame_count: int = 4) -> list[s
             f"{name}: character pops back up exhausted, loopable return pose",
             f"{name}: character settles with a tiny defeated sigh, ready to loop",
         ]
-    elif any(token in motion for token in ["typing", "terminal", "compile", "keyboard"]):
+    elif category == "keyboard":
         frames = [
             f"{name}: character freezes at the keyboard before starting",
             f"{name}: character leans in with nervous focus",
@@ -712,7 +740,7 @@ def animation_frames_for_entry(entry: MemeEntry, frame_count: int = 4) -> list[s
             f"{name}: tiny exhausted pause, still loopable back to frame 1",
             f"{name}: character resets hands on keyboard for loop",
         ]
-    elif any(token in motion for token in ["shake", "tremble", "wobble", "panic"]):
+    elif category == "shake":
         frames = [
             f"{name}: character holds a tense neutral pose",
             f"{name}: character shakes slightly to the left",
@@ -723,7 +751,7 @@ def animation_frames_for_entry(entry: MemeEntry, frame_count: int = 4) -> list[s
             f"{name}: character breathes once but is still worried",
             f"{name}: character returns to tense neutral pose",
         ]
-    elif any(token in motion for token in ["nod", "understand", "blink"]):
+    elif category == "nod":
         frames = [
             f"{name}: character starts with a polite alive-looking pose, eyes open",
             f"{name}: eyelids droop clearly, shoulders sink slightly, same silhouette and hand pose",
@@ -734,7 +762,7 @@ def animation_frames_for_entry(entry: MemeEntry, frame_count: int = 4) -> list[s
             f"{name}: character returns to blank stare, eyes open wider like the soul rebooted",
             f"{name}: same as frame 1, loopable return pose with stable center",
         ]
-    elif any(token in motion for token in ["recoil", "jump", "hit", "swoop"]):
+    elif category == "recoil":
         frames = [
             f"{name}: character sees the problem approaching",
             f"{name}: character begins to lean back",
@@ -745,7 +773,7 @@ def animation_frames_for_entry(entry: MemeEntry, frame_count: int = 4) -> list[s
             f"{name}: character settles back while still shocked",
             f"{name}: character holds a loopable stunned pose",
         ]
-    elif any(token in motion for token in ["droop", "flatline", "data", "chart"]):
+    elif category == "chart":
         frames = [
             f"{name}: character holds a chart hopefully",
             f"{name}: character points at the chart with cautious optimism",
@@ -756,7 +784,7 @@ def animation_frames_for_entry(entry: MemeEntry, frame_count: int = 4) -> list[s
             f"{name}: character stares at the result in silence",
             f"{name}: character returns to holding the sad chart, loopable",
         ]
-    elif any(token in motion for token in ["summon", "glow", "sparkle", "ritual"]):
+    elif category == "glow":
         frames = [
             f"{name}: small glow appears near the character",
             f"{name}: character notices the glow",
@@ -767,7 +795,7 @@ def animation_frames_for_entry(entry: MemeEntry, frame_count: int = 4) -> list[s
             f"{name}: glow fades while character remains stressed",
             f"{name}: character settles into a loopable worried pose",
         ]
-    elif any(token in motion for token in ["fade", "sleep", "ghost"]):
+    elif category == "fade":
         frames = [
             f"{name}: character sits normally but tired",
             f"{name}: character eyelids droop",
@@ -860,20 +888,11 @@ def keypose_prompt_rules(layout: str, render_frame_count: int) -> str:
 
 
 def visual_gag_for_entry(entry: MemeEntry) -> str:
-    motion = entry.motion.lower()
-    if any(token in motion for token in ["paper", "scroll", "document", "literature"]):
-        return "papers multiply around the character until the reaction reads before the caption appears"
-    if any(token in motion for token in ["typing", "terminal", "compile", "keyboard"]):
-        return "tiny frantic keyboard or screen glow drives the joke without any visible text"
-    if any(token in motion for token in ["shake", "tremble", "wobble", "panic"]):
-        return "small stress tremble escalates into a clear peak pose, then loops back"
-    if any(token in motion for token in ["droop", "flatline", "data", "chart"]):
-        return "a simple chart or prop physically deflates while the character tries to stay calm"
-    if any(token in motion for token in ["summon", "glow", "sparkle", "ritual"]):
-        return "a tight halo or glow appears close to the character and never crosses the cell edge"
-    if any(token in motion for token in ["fade", "sleep", "ghost"]):
-        return "the character visibly powers down or mentally exits, then returns to loop"
-    return "the face and body language carry the joke clearly at 240x240 before the caption is added"
+    return _classify(
+        entry.motion.lower(),
+        VISUAL_GAG_RULES,
+        "the face and body language carry the joke clearly at 240x240 before the caption is added",
+    )
 
 
 MEME_QUALITY_BAR = {
@@ -894,16 +913,11 @@ MEME_QUALITY_BAR = {
 
 
 def emotional_value_for_entry(entry: MemeEntry) -> str:
-    text = f"{entry.name} {entry.text} {entry.scene} {entry.motion}".lower()
-    if any(token in text for token in ["收到", "加载", "已读", "懂"]):
-        return "low-pressure reply that buys time without sounding cold"
-    if any(token in text for token in ["离谱", "合理", "问题", "崩", "翻车", "bug"]):
-        return "shared disbelief and comic relief when things go wrong"
-    if any(token in text for token in ["写", "ddl", "加班", "交", "进度", "返修"]):
-        return "deadline survival humor that says I am trying but suffering"
-    if any(token in text for token in ["咖啡", "早八", "睡", "灵魂", "退场"]):
-        return "energy-depleted self-mockery that is easy to send repeatedly"
-    return "quick emotional shorthand that makes the chat reply more playful"
+    return _classify(
+        _entry_text(entry),
+        EMOTIONAL_VALUE_RULES,
+        "quick emotional shorthand that makes the chat reply more playful",
+    )
 
 
 def sendability_gate_for_entry(entry: MemeEntry) -> dict[str, str]:
