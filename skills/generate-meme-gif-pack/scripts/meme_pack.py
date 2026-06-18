@@ -1061,11 +1061,8 @@ def image_prompt_for_entry(
     return {
         "index": index,
         "name": entry.name,
-        "meme_name": entry.name,
         "caption": entry.text,
-        "send_scene": entry.scene,
         "scene": entry.scene,
-        "motion_type": entry.motion,
         "motion": entry.motion,
         "motion_profile": motion_profile,
         "source_mode": source_mode,
@@ -1078,10 +1075,7 @@ def image_prompt_for_entry(
         "local_effects": template_plan["local_effects"],
         "qc_policy": template_plan["qc_policy"],
         "continuity_acceptance": template_plan["continuity_acceptance"],
-        "frames": frame_plan,
         "frame_beats": frame_plan,
-        "8_frame_beats": frame_plan if frame_count == 8 else frame_plan[:8],
-        f"{frame_count}_frame_beats": frame_plan,
         "visual_gag": visual_gag_for_entry(entry),
         "sendability_gate": sendability_gate,
         "negative_prompt": HARD_IMAGE_RULES,
@@ -3396,7 +3390,7 @@ def accept_generated_image(plan_path: Path, index: int, image_path: Path, source
     prompt = prompts[index - 1]
     raw_filename = prompt.get("raw_image_filename")
     if not raw_filename:
-        name = prompt.get("name") or prompt.get("meme_name") or "meme"
+        name = prompt.get("name") or "meme"
         layout = prompt.get("animation_layout") or plan.get("animation", {}).get("source_layout") or DEFAULT_ANIMATION_LAYOUT
         raw_filename = f"{index:02d}-{slug_filename(name)}-{layout}.png"
 
@@ -3408,11 +3402,11 @@ def accept_generated_image(plan_path: Path, index: int, image_path: Path, source
 
     record = {
         "index": index,
-        "name": prompt.get("name") or prompt.get("meme_name") or "",
+        "name": prompt.get("name") or "",
         "source_image": str(image_path),
         "saved_image": str(target),
         "raw_image_filename": raw_filename,
-        "prompt_name": prompt.get("meme_name") or prompt.get("name") or "",
+        "prompt_name": prompt.get("name") or "",
     }
     index_path = target_dir / "generated-index.json"
     if index_path.exists():
