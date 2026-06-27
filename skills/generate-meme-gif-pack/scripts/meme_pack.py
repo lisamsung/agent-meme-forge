@@ -636,6 +636,49 @@ def _base_timeline(frame_count: int) -> list[dict[str, float | int]]:
     return expanded[:frame_count]
 
 
+def eased_frame_durations(poses: list[int], total_ms: int, grid: int = 10, min_ms: int = 60) -> list[int]:
+    """Spread total_ms across frames with ease-in/out plus holds.
+
+    A frame that arrives at a new pose plays quick (transition); the last frame of a held
+    run plays longest (settle); mid-hold frames sit in between. The sum is kept equal to
+    total_ms so the overall loop pace is preserved. Poses are treated cyclically so a run
+    that spans the loop seam is timed correctly.
+    """
+    count = len(poses)
+    if count <= 1:
+        return [total_ms] * count
+    weights: list[float] = []
+    for index in range(count):
+        same_prev = poses[index] == poses[(index - 1) % count]
+        same_next = poses[index] == poses[(index + 1) % count]
+        if not same_prev:
+            weights.append(0.60)  # arrival / transition -> quick
+        elif not same_next:
+            weights.append(1.55)  # settle (last hold of a run) -> longest
+        else:
+            weights.append(1.25)  # mid-hold
+    weight_sum = sum(weights)
+    durations = [max(min_ms, round(total_ms * weight / weight_sum / grid) * grid) for weight in weights]
+    # Settle the leftover - including any sub-grid remainder when total_ms is not a multiple of
+    # grid (e.g. odd render_frame_count) - onto the highest-weight (longest-held) frames so the
+    # durations sum exactly to total_ms, never dropping a frame below min_ms.
+    order = sorted(range(count), key=lambda index: -weights[index])
+    drift = total_ms - sum(durations)
+    cursor = 0
+    while drift and cursor < 8 * count:
+        index = order[cursor % count]
+        if drift > 0:
+            step = min(drift, grid)
+            durations[index] += step
+            drift -= step
+        else:
+            step = min(-drift, grid, max(0, durations[index] - min_ms))
+            durations[index] -= step
+            drift += step
+        cursor += 1
+    return durations
+
+
 def timeline_for_template(template_id: str, frame_count: int = DEFAULT_RENDER_FRAME_COUNT) -> list[dict[str, float | int]]:
     timeline = _base_timeline(frame_count)
     if template_id == "soul_offline":
@@ -686,6 +729,22 @@ def timeline_for_template(template_id: str, frame_count: int = DEFAULT_RENDER_FR
             step["pose"] = [1, 1, 2, 2, 2, 3, 3, 3, 2, 2, 4, 4, 1, 1, 1, 1][index % 16]
             step["scale"] = 1.0 + [0, 0.004, 0.008, 0.012, 0.008, 0.002, -0.004, -0.006, -0.004, 0, 0.004, 0.002, 0, 0, 0, 0][index % 16]
             step["rotation"] = 0
+    # Chunk 1 - tremor suppression: damp the whole-sprite translation/rotation that read as
+    # trembling down to a faint residual; keep each step's gentle scale as a breathing pulse so
+    # holds stay alive. NOTE: fully zeroing it is the goal, but at exactly-zero whole-sprite
+    # motion the head-shape-drift QC (_head_shape_report) spikes (a detection artifact, not a
+    # real visual defect) - full removal + that QC fix are bundled into a later chunk.
+    tremor_damp = 0.5
+    for step in timeline:
+        step["dx"] = float(step.get("dx", 0)) * tremor_damp
+        step["dy"] = float(step.get("dy", 0)) * tremor_damp
+        step["rotation"] = float(step.get("rotation", 0)) * tremor_damp
+    # Chunk 1 - timing: attach an eased per-frame duration so held poses play longer and
+    # transitions snap. Total preserves the original loop pace; GIF size is unaffected.
+    poses = [int(step.get("pose", 1)) for step in timeline]
+    total_ms = gif_duration_for_frame_count(len(timeline)) * len(timeline)
+    for step, duration_ms in zip(timeline, eased_frame_durations(poses, total_ms)):
+        step["duration_ms"] = duration_ms
     return timeline
 
 
@@ -2764,13 +2823,21 @@ def gif_attempt_frame_counts(frame_count: int) -> list[int]:
     return attempts
 
 
-def save_gif_under_limit(frames: list[Image.Image], path: Path, max_bytes: int = 500_000) -> int:
+def save_gif_under_limit(
+    frames: list[Image.Image],
+    path: Path,
+    max_bytes: int = 500_000,
+    durations: list[int] | None = None,
+) -> int:
     if not frames:
         raise ValueError(f"Cannot save {path.name}: no frames were provided.")
+    use_per_frame = isinstance(durations, list) and len(durations) == len(frames)
     attempts = [
         {
             "frames": frames[:attempt_count],
-            "duration": gif_duration_for_frame_count(attempt_count),
+            "duration": (
+                durations[:attempt_count] if use_per_frame else gif_duration_for_frame_count(attempt_count)
+            ),
             "colors": gif_colors_for_frame_count(attempt_count),
         }
         for attempt_count in gif_attempt_frame_counts(len(frames))
@@ -2797,9 +2864,14 @@ def save_gif_under_limit(frames: list[Image.Image], path: Path, max_bytes: int =
 
 def gif_output_info(path: Path) -> dict[str, int]:
     with Image.open(path) as gif:
+        first_ms = int(gif.info.get("duration", 0) or 0)
+        total_ms = sum(int(frame.info.get("duration", 0) or 0) for frame in ImageSequence.Iterator(gif))
         return {
             "gif_frame_count": int(getattr(gif, "n_frames", 1)),
-            "gif_duration_ms": int(gif.info.get("duration", 0) or 0),
+            # First-frame delay (kept for back-compat); with variable timing the loop length
+            # lives in gif_total_duration_ms.
+            "gif_duration_ms": first_ms,
+            "gif_total_duration_ms": total_ms,
         }
 
 
@@ -3040,7 +3112,17 @@ def build_pack(
         named_slug = ensure_unique_name(entry.name, used_names)
         named_gif = named_dir / f"{named_slug}.gif"
         numbered_gif = main_dir / f"{index:02d}.gif"
-        gif_size = save_gif_under_limit(frames, numbered_gif, WECHAT_SPEC["main"]["max_bytes"])
+        timeline_steps = normalization_meta.get("timeline") if source_mode == "keyposes" else None
+        frame_durations = (
+            [int(step["duration_ms"]) for step in timeline_steps]
+            if timeline_steps
+            and len(timeline_steps) == len(frames)
+            and all("duration_ms" in step for step in timeline_steps)
+            else None
+        )
+        gif_size = save_gif_under_limit(
+            frames, numbered_gif, WECHAT_SPEC["main"]["max_bytes"], durations=frame_durations
+        )
         gif_info = gif_output_info(numbered_gif)
         shutil.copyfile(numbered_gif, named_gif)
 
@@ -3178,6 +3260,7 @@ def build_pack(
                 "gif_bytes",
                 "gif_frame_count",
                 "gif_duration_ms",
+                "gif_total_duration_ms",
                 "thumb_bytes",
                 "qc_status",
                 "qc_warnings",

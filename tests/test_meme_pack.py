@@ -386,6 +386,51 @@ def test_render_keypose_motion_uses_template_to_create_16_frames(tmp_path: Path)
     assert meta["scale_normalized"] is True
 
 
+def test_eased_frame_durations_holds_longer_than_transitions():
+    meme_pack = load_module()
+    poses = [1, 1, 2, 2, 2, 3, 3, 3, 3, 2, 2, 4, 4, 1, 1, 1]  # soul_offline pose sequence
+    total = meme_pack.gif_duration_for_frame_count(16) * 16
+
+    durations = meme_pack.eased_frame_durations(poses, total)
+
+    assert len(durations) == 16
+    assert all(value >= 60 and value % 10 == 0 for value in durations)
+    assert sum(durations) == total  # pace preserved exactly
+    assert meme_pack.eased_frame_durations(poses, total) == durations  # deterministic
+    prev_poses = [poses[-1], *poses[:-1]]
+    arrivals = [d for d, pose, prev in zip(durations, poses, prev_poses) if pose != prev]
+    holds = [d for d, pose, prev in zip(durations, poses, prev_poses) if pose == prev]
+    assert max(arrivals) < min(holds)  # transitions snap, holds linger
+
+    # Non-default frame counts: total_ms may not be a multiple of the 10ms grid; the sum must
+    # still come out exact (regression for odd render_frame_count like 13/15).
+    poses13 = [1, 1, 2, 2, 3, 3, 3, 4, 4, 2, 1, 1, 1]
+    total13 = meme_pack.gif_duration_for_frame_count(13) * 13  # 125 * 13 = 1625, not a multiple of 10
+    durations13 = meme_pack.eased_frame_durations(poses13, total13)
+    assert len(durations13) == 13
+    assert sum(durations13) == total13
+    assert all(value >= 60 for value in durations13)
+
+
+def test_save_gif_under_limit_honors_per_frame_durations(tmp_path: Path):
+    meme_pack = load_module()
+    frames = []
+    for index in range(6):
+        frame = Image.new("RGBA", (240, 240), (0, 0, 0, 0))
+        ImageDraw.Draw(frame).ellipse((40 + index * 4, 40, 200, 200), fill=(60, 120, 220, 255))
+        frames.append(frame)
+
+    timed_path = tmp_path / "timed.gif"
+    meme_pack.save_gif_under_limit(frames, timed_path, durations=[80, 200, 80, 200, 80, 200])
+    timed = [frame.info.get("duration", 0) for frame in ImageSequence.Iterator(Image.open(timed_path))]
+    assert len(set(timed)) > 1  # per-frame timing landed
+
+    scalar_path = tmp_path / "scalar.gif"
+    meme_pack.save_gif_under_limit(frames, scalar_path)  # durations=None -> scalar fallback
+    scalar = [frame.info.get("duration", 0) for frame in ImageSequence.Iterator(Image.open(scalar_path))]
+    assert len(set(scalar)) == 1
+
+
 def test_motion_template_plan_exposes_effects_and_qc_policy():
     meme_pack = load_module()
 
@@ -924,7 +969,15 @@ def test_build_pack_keyposes_renders_16_frame_gif_and_manifest_fields(tmp_path: 
     assert "prop_area_jump" in first_item
     assert "face_shape_drift_score" in first_item
     assert "max_head_center_step_px" in first_item
-    assert gif.n_frames == 16
+    # De-jitter lets PIL merge byte-identical hold frames (summing their durations), so the
+    # saved GIF may carry fewer than the 16 logical frames; the logical count stays 16.
+    assert first_item["rendered_frame_count"] == 16
+    assert 8 <= gif.n_frames <= 16
+    # Chunk 1 timing: held poses play longer than transitions, so the saved GIF no longer
+    # uses a single scalar duration, and the total still preserves the loop pace.
+    frame_durations = [frame.info.get("duration", 0) for frame in ImageSequence.Iterator(gif)]
+    assert len(set(frame_durations)) > 1
+    assert 2200 <= sum(frame_durations) <= 2600
 
 
 def test_build_pack_submission_requires_one_source_per_entry(tmp_path: Path):
