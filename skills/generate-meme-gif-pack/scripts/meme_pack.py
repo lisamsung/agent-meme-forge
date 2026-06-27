@@ -64,6 +64,7 @@ PERSONA_PROMPT_CUES = {
     "科研打工人": "papers, literature review, lab mishaps, group meeting pressure, supervisor messages, charts, revision anxiety",
     "研究僧": "papers, literature review, group meetings, supervisor messages, thesis pressure, significance anxiety",
     "码农": "bugs, terminal windows, server panic, deploy pressure, requirements changing, logs, compile rituals",
+    "Vibe Coding": "terminal windows, code editor, AI pair-programming, debugging, tests, refactor pressure, deploy rituals, monitoring dashboards, coffee, late-night shipping",
     "都市丽人": "commute, coffee, elegant collapse, meeting smile, office desk, lipstick or mirror props, after-work revival",
     "打工仔": "boss messages, overtime, office desk, tiny salary survival, task papers, workplace fake calm",
     "学生": "early class, homework, exams, library, roll call, GPA panic, cafeteria and vacation countdown",
@@ -278,6 +279,32 @@ PERSONA_ENTRIES = {
         MemeEntry("日志沉默", "日志说\n它不知道", "日志", "日志没有有用信息", "scroll shrug"),
         MemeEntry("线上没事", "线上没事\n我有事", "上线", "上线后的压力", "server pulse"),
         MemeEntry("重启试试", "要不\n重启试试", "重启", "经典排障回复", "power icon bounce"),
+    ],
+    "Vibe Coding": [
+        MemeEntry("灵感来了", "灵感\n来了!", "灵感", "突然想到一个可做的小功能或实现路线", "lightbulb pop and claw raise"),
+        MemeEntry("构思中", "构思中...", "构思", "开始拆需求和想架构时", "sketch pad and pencil thinking loop"),
+        MemeEntry("写代码中", "写代码中...", "写码", "正在进入实现状态", "terminal typing with focused eyes"),
+        MemeEntry("专注模式", "专注\n模式", "专注", "需要不被打扰地推进代码", "code screen visor focus pulse"),
+        MemeEntry("调试中", "调试中...", "调试", "拿放大镜找问题", "magnifier scan and suspicious squint"),
+        MemeEntry("发现Bug", "发现\nBug!", "bug", "发现明显 bug 或复现问题时", "bug alert recoil"),
+        MemeEntry("报错了", "报错了...", "报错", "运行或构建直接红了", "error sign slam and angry shake"),
+        MemeEntry("谁动了我的代码", "谁动了\n我的代码?", "甩锅", "代码突然变坏需要追责时", "question bubble and side-eye"),
+        MemeEntry("让我看看", "让我\n看看...", "检查", "准备接手排查或 review", "lean toward monitor and blink"),
+        MemeEntry("不确定", "不确定...", "犹豫", "方案还没完全想稳", "question mark hover"),
+        MemeEntry("试试这个", "试试\n这个?", "尝试", "提出一个可试的方案", "small speech bubble and claw point"),
+        MemeEntry("搞定", "搞定!", "完成", "修完或做完一个小闭环", "sparkle victory claw"),
+        MemeEntry("测试中", "测试中...", "测试", "跑测试等待结果", "testing tube and progress bar loop"),
+        MemeEntry("测试通过", "测试\n通过!", "通过", "测试变绿或验收通过", "green check pop"),
+        MemeEntry("测试失败", "测试\n失败...", "失败", "测试红了需要返工", "red cross drop"),
+        MemeEntry("重构中", "重构中...", "重构", "整理结构但还没结束", "steam puff and code block rearrange"),
+        MemeEntry("优化中", "优化中...", "优化", "在提速或减资源消耗", "up arrows and calm nod"),
+        MemeEntry("性能起飞", "性能\n起飞!", "性能", "优化后速度明显变快", "rocket launch recoil"),
+        MemeEntry("加个TODO", "加个\nTODO", "TODO", "先记账暂缓处理", "todo sign pop"),
+        MemeEntry("查文档中", "查文档中...", "文档", "翻 API 或框架文档", "open book page flip"),
+        MemeEntry("部署中", "部署中...", "部署", "正在发布或上传", "cloud upload pulse"),
+        MemeEntry("上线啦", "上线啦!", "上线", "发布成功可以庆祝", "confetti and proud claw"),
+        MemeEntry("监控中", "监控中...", "监控", "上线后盯监控面板", "dashboard heartbeat watch"),
+        MemeEntry("今晚又加班", "今晚\n又加班", "加班", "晚上继续赶交付", "night laptop and exhausted blink"),
     ],
     "都市丽人": [
         MemeEntry("精致崩溃", "精致\n但崩溃", "崩溃", "体面地崩溃", "lipstick wobble"),
@@ -1405,7 +1432,10 @@ def plan_pack(
 def default_entries(persona: str, pack_size: int = 24) -> list[MemeEntry]:
     validate_pack_size(pack_size, "wechat" if pack_size in {16, 24} else "self_use")
     persona_entries = PERSONA_ENTRIES.get(persona, PERSONA_ENTRIES["科研打工人"])
-    ordered = [*COMMON_ENTRIES, *persona_entries, *FILLER_ENTRIES]
+    if persona == "Vibe Coding":
+        ordered = [*persona_entries, *COMMON_ENTRIES, *FILLER_ENTRIES]
+    else:
+        ordered = [*COMMON_ENTRIES, *persona_entries, *FILLER_ENTRIES]
     unique: list[MemeEntry] = []
     seen: set[str] = set()
     for entry in ordered:

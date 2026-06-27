@@ -153,6 +153,33 @@ def test_default_entries_include_persona_specific_memes():
     assert all(entry.name and entry.keyword and entry.scene for entry in entries)
 
 
+def test_vibe_coding_entries_match_ai_coding_reference_pack():
+    meme_pack = load_module()
+
+    entries = meme_pack.default_entries("Vibe Coding", 24)
+    names = {entry.name for entry in entries}
+    captions = "\n".join(entry.text for entry in entries).replace("\n", "")
+
+    assert len(entries) == 24
+    assert [entry.name for entry in entries[:3]] == ["灵感来了", "构思中", "写代码中"]
+    assert {
+        "灵感来了",
+        "构思中",
+        "写代码中",
+        "专注模式",
+        "调试中",
+        "发现Bug",
+        "测试通过",
+        "重构中",
+        "部署中",
+        "上线啦",
+        "今晚又加班",
+    }.issubset(names)
+    assert "灵感来了" in captions
+    assert "上线啦" in captions
+    assert all(entry.keyword and entry.scene and entry.motion for entry in entries)
+
+
 def test_plan_pack_builds_direct_text_image_prompts():
     meme_pack = load_module()
 
