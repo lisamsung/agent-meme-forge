@@ -431,6 +431,41 @@ def test_save_gif_under_limit_honors_per_frame_durations(tmp_path: Path):
     assert len(set(scalar)) == 1
 
 
+def test_per_template_tremor_damping_preserves_intentional_shake():
+    meme_pack = load_module()
+    typing = meme_pack.timeline_for_template("typing_panic", 16)
+    soul = meme_pack.timeline_for_template("soul_offline", 16)
+    typing_dx = max(abs(float(step["dx"])) for step in typing)
+    soul_dx = max(abs(float(step["dx"])) for step in soul)
+    assert typing_dx >= 1.0  # typing_panic keeps its intentional rapid shake
+    assert soul_dx <= 0.6  # gentle templates are damped toward stillness
+    assert typing_dx > soul_dx
+
+
+def test_normalize_anchor_align_registers_drifting_subjects():
+    meme_pack = load_module()
+    frames = []
+    for shift in (0, 22, -16):  # one blob drawn at drifting x positions (mimics source drift)
+        img = Image.new("RGBA", (240, 240), (0, 0, 0, 0))
+        ImageDraw.Draw(img).ellipse((92 + shift, 60, 150 + shift, 160), fill=(60, 120, 220, 255))
+        frames.append(img)
+
+    aligned, meta = meme_pack.normalize_motion_frames(frames, anchor_align=True)
+    assert meta["anchor_aligned"] is True
+    aligned_x = [meme_pack._subject_anchor(frame)[0] for frame in aligned]
+    assert max(aligned_x) - min(aligned_x) <= 4  # bodies registered to a shared x
+
+    loose, loose_meta = meme_pack.normalize_motion_frames(frames, anchor_align=False)
+    loose_x = [meme_pack._subject_anchor(frame)[0] for frame in loose]
+    assert max(loose_x) - min(loose_x) >= 10  # without anchoring the drift passes through
+    assert loose_meta["anchor_aligned"] is False
+
+    # Fewer than two usable anchors -> registration is skipped and the meta says so honestly.
+    blank = Image.new("RGBA", (240, 240), (0, 0, 0, 0))
+    _, skip_meta = meme_pack.normalize_motion_frames(frames[:1] + [blank, blank], anchor_align=True)
+    assert skip_meta["anchor_aligned"] is False
+
+
 def test_motion_template_plan_exposes_effects_and_qc_policy():
     meme_pack = load_module()
 

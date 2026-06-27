@@ -636,6 +636,15 @@ def _base_timeline(frame_count: int) -> list[dict[str, float | int]]:
     return expanded[:frame_count]
 
 
+# Per-template whole-sprite tremor damping (Chunk 2). Most templates damp their rigid
+# dx/dy/rotation toward stillness, but templates whose shake IS the gag keep more of it.
+DEFAULT_TREMOR_DAMP = 0.5
+TEMPLATE_TREMOR_DAMP = {
+    "typing_panic": 1.0,    # frantic typing shake is intentional - keep it
+    "absurd_recoil": 0.85,  # big exaggerated recoil - keep most of it
+}
+
+
 def eased_frame_durations(poses: list[int], total_ms: int, grid: int = 10, min_ms: int = 60) -> list[int]:
     """Spread total_ms across frames with ease-in/out plus holds.
 
@@ -734,7 +743,7 @@ def timeline_for_template(template_id: str, frame_count: int = DEFAULT_RENDER_FR
     # holds stay alive. NOTE: fully zeroing it is the goal, but at exactly-zero whole-sprite
     # motion the head-shape-drift QC (_head_shape_report) spikes (a detection artifact, not a
     # real visual defect) - full removal + that QC fix are bundled into a later chunk.
-    tremor_damp = 0.5
+    tremor_damp = TEMPLATE_TREMOR_DAMP.get(template_id, DEFAULT_TREMOR_DAMP)
     for step in timeline:
         step["dx"] = float(step.get("dx", 0)) * tremor_damp
         step["dy"] = float(step.get("dy", 0)) * tremor_damp
@@ -2143,12 +2152,34 @@ def load_source_frames(path: Path, source_layout: str = "auto") -> tuple[list[Im
     return [clean_generated_frame_background(frame) for frame in split_sheet_frames(rgba, layout)], "sheet", layout
 
 
+def _subject_anchor(frame: Image.Image) -> tuple[float, float] | None:
+    """Stable registration anchor = centroid of the largest (body) component.
+
+    Center of mass is robust to silhouette changes (a raised hand or a side prop barely moves
+    it), so aligning poses by it removes gross body drift without killing intentional head/limb
+    acting. Detached props fall into smaller components and are ignored; faceless blobs still
+    have a centroid. Falls back to the bbox center, then None for an empty frame. Assumes the
+    body is the largest component; a prop larger than the subject (or a body split into far
+    pieces) would mis-anchor - rare for single-character keyposes, revisit if it surfaces.
+    """
+    components = connected_components(frame, min_area=24)
+    if components:
+        pixels = components[0]["pixels"]
+        count = max(1, len(pixels))
+        return (sum(point[0] for point in pixels) / count, sum(point[1] for point in pixels) / count)
+    bbox = frame.getbbox()
+    if bbox:
+        return ((bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2)
+    return None
+
+
 def normalize_motion_frames(
     raw_frames: list[Image.Image],
     size: tuple[int, int] = SUBJECT_CANVAS_SIZE,
     caption_reserved_height: int = CAPTION_RESERVED_HEIGHT,
     margin: int = 18,
     alignment_mode: str = "preserve",
+    anchor_align: bool = False,
 ) -> tuple[list[Image.Image], dict[str, object]]:
     if alignment_mode not in {"preserve", "stable"}:
         raise ValueError("alignment_mode must be 'preserve' or 'stable'.")
@@ -2199,9 +2230,34 @@ def normalize_motion_frames(
             y = max(4, (visual_height - new_height) // 2)
             canvas.alpha_composite(resized, (x, y))
         normalized.append(canvas)
+
+    anchor_applied = False
+    if anchor_align:
+        placed = [(frame, _subject_anchor(frame)) for frame in normalized]
+        anchors = [anchor for _, anchor in placed if anchor]
+        if len(anchors) >= 2:
+            anchor_applied = True
+            mean_x = sum(anchor[0] for anchor in anchors) / len(anchors)
+            mean_y = sum(anchor[1] for anchor in anchors) / len(anchors)
+            registered: list[Image.Image] = []
+            for frame, anchor in placed:
+                bbox = frame.getbbox()
+                if not anchor or not bbox:
+                    registered.append(frame)
+                    continue
+                # Shift so the body anchor lands on the shared mean, clamped to keep the whole
+                # subject on-canvas and out of the caption band.
+                shift_x = max(-bbox[0], min(size[0] - bbox[2], mean_x - anchor[0]))
+                shift_y = max(-bbox[1], min(visual_height - bbox[3], mean_y - anchor[1]))
+                canvas = Image.new("RGBA", size, (0, 0, 0, 0))
+                canvas.alpha_composite(frame, (int(round(shift_x)), int(round(shift_y))))
+                registered.append(canvas)
+            normalized = registered
+
     return normalized, {
         "scale_normalized": True,
         "alignment_mode": alignment_mode,
+        "anchor_aligned": anchor_applied,
         "normalization_scale": round(scale, 4),
         "source_bbox_count": len(bboxes),
         "common_crop": common_crop,
@@ -2303,6 +2359,7 @@ def render_keypose_motion(
         raw_keyposes,
         caption_reserved_height=caption_reserved_height,
         alignment_mode=alignment_mode_for_profile(motion_profile),
+        anchor_align=True,
     )
     timeline = timeline_for_template(motion_template, frame_count)
     rendered: list[Image.Image] = []
