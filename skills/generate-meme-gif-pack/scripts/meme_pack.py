@@ -92,7 +92,7 @@ SHEET_LAYOUTS = {
 DEFAULT_ANIMATION_LAYOUT = "2x4"
 QUALITY_MODES = {"preview", "standard", "submission"}
 MOTION_PROFILES = {"micro", "standard", "action"}
-SOURCE_MODES = {"keyposes", "motion_sheet", "single_bounce"}
+SOURCE_MODES = {"keyposes", "motion_sheet", "single_bounce", "dense_frames"}
 DEFAULT_SOURCE_MODE = "keyposes"
 IMAGE_PROVIDER_CODEX_BUILTIN = "codex_builtin_image_gen"
 IMAGE_PROVIDER_OPENAI_IMAGES_API = "openai_images_api"
@@ -124,6 +124,9 @@ DEFAULT_IMAGE_PROVIDER = IMAGE_PROVIDER_CODEX_BUILTIN
 DEFAULT_KEYPOSE_LAYOUT = "2x2"
 KEYPOSE_LAYOUTS = {"2x2", "1x4"}
 MOTION_SHEET_LAYOUTS = {"2x4", "4x4"}
+# Dense real frames: the model draws every cell as a genuine frame, so the grid is the
+# animation itself. 2x4 (8) is the research sweet spot; 4x4 (16) suits clean cyclic actions.
+DENSE_FRAME_LAYOUTS = {"2x4", "4x4"}
 DEFAULT_RENDER_FRAME_COUNT = 16
 CAPTION_RESERVED_HEIGHT = 76
 MIN_CAPTION_RESERVED_HEIGHT = 42
@@ -691,6 +694,24 @@ def eased_frame_durations(poses: list[int], total_ms: int, grid: int = 10, min_m
     return durations
 
 
+def dense_frame_durations(frame_count: int, base_ms: int = 90, rest_extra_ms: int = 80) -> list[int]:
+    """Per-frame GIF timing for dense REAL frames: near-uniform ~11fps with a short breath on
+    the neutral first cell.
+
+    Unlike keyposes - which are re-rendered from a few keyposes and therefore need pose-hold
+    weighting (see eased_frame_durations) - dense frames already encode the motion easing in the
+    drawing itself, so uniform playback faithfully reproduces the arc. The only tweak is a small
+    extra hold on cell 0 (the exposure-sheet prompt draws it as the neutral rest) to give the loop
+    a beat. Durations sit on the 10ms GIF centisecond grid.
+    """
+    if frame_count <= 0:
+        return []
+    base = max(10, round(base_ms / 10) * 10)
+    durations = [base] * frame_count
+    durations[0] += max(0, round(rest_extra_ms / 10) * 10)
+    return durations
+
+
 def timeline_for_template(template_id: str, frame_count: int = DEFAULT_RENDER_FRAME_COUNT) -> list[dict[str, float | int]]:
     timeline = _base_timeline(frame_count)
     if template_id == "soul_offline":
@@ -1212,6 +1233,15 @@ def plan_pack(
 ) -> dict:
     validate_pack_size(pack_size, mode)
     source_mode = parse_source_mode(source_mode)
+    if source_mode == "dense_frames":
+        # plan-pack still emits motion_sheet-style image prompts; dense needs the exposure-sheet
+        # recipe in dense_frames.py, which is not wired into planning yet. Refuse rather than hand
+        # back the wrong raw material (the build/qc side of dense is ready and stays open).
+        raise ValueError(
+            "plan-pack does not yet emit dense_frames exposure-sheet prompts. Generate dense sheets "
+            "directly with dense_frames.py (canonical -> sheet), then run qc-sheet / build-pack "
+            "--source-mode dense_frames. (Wiring dense into plan-pack is the next chunk.)"
+        )
     image_provider = parse_image_provider(image_provider)
     if source_mode == "keyposes":
         source_layout = parse_keypose_layout(keypose_layout)
@@ -2095,6 +2125,8 @@ def qc_sheet(
             required_layouts = KEYPOSE_LAYOUTS
         elif source_mode == "motion_sheet":
             required_layouts = MOTION_SHEET_LAYOUTS
+        elif source_mode == "dense_frames":
+            required_layouts = DENSE_FRAME_LAYOUTS
     if required_layouts and source_mode != "single_bounce" and detected_layout not in required_layouts:
         allowed = ", ".join(sorted(required_layouts))
         errors.append(f"{quality_mode} mode requires one of {allowed} {source_mode} sheets; got {detected_layout}")
@@ -2106,11 +2138,13 @@ def qc_sheet(
         expected_count = parse_sheet_layout(detected_layout)[0] * parse_sheet_layout(detected_layout)[1]
         if len(frames) != expected_count:
             errors.append(f"expected {expected_count} frames for {detected_layout}, got {len(frames)}")
-    frame_qc_profile = "action" if source_mode == "keyposes" else motion_profile
+    # Dense frames, like keyposes, are re-registered locally (normalize_dense_frames scales each
+    # subject to one height), so per-cell size drift in the raw sheet is expected, not a defect.
+    frame_qc_profile = "action" if source_mode in ("keyposes", "dense_frames") else motion_profile
     frame_reports, frame_warnings, frame_errors, drift, edge_touch = analyze_frames_for_qc(
         frames, quality_mode, frame_qc_profile
     )
-    if source_mode == "keyposes":
+    if source_mode in ("keyposes", "dense_frames"):
         frame_errors = [error for error in frame_errors if not error.startswith("frame size drift")]
     warnings.extend(frame_warnings)
     errors.extend(frame_errors)
@@ -3172,6 +3206,10 @@ def build_pack(
         )
         raw_frames, animation_source, detected_layout = load_source_frames(image_path, read_layout)
         raw = raw_frames[0]
+        if source_mode == "dense_frames":
+            # The dense sheet sits on a flat #FF00FF chroma background; key it out of the first
+            # cell so the thumbnail / cover / banner show the character, not a magenta block.
+            raw = remove_chroma_background(raw.convert("RGBA"), color=(255, 0, 255), tolerance=40)
         cached_sources.append(raw)
         preview_only = False
         normalization_meta: dict[str, object] = {"scale_normalized": False}
@@ -3235,6 +3273,37 @@ def build_pack(
                 warnings = "; ".join(str(warning) for warning in continuity_report["warnings"])
                 raise ValueError(f"{image_path.name} has continuity warnings: {warnings}")
             frames = caption_source_frames(normalized_frames, entry.text, font_path)
+        elif source_mode == "dense_frames":
+            if len(raw_frames) <= 1:
+                raise ValueError(
+                    f"{image_path.name}: dense_frames needs a multi-cell sheet; got {len(raw_frames)} frame(s)."
+                )
+            normalized_frames, normalization_meta = normalize_dense_frames(
+                raw_frames,
+                caption_reserved_height=caption_reserved_height,
+            )
+            placed = int(normalization_meta.get("placed_frame_count", 0))
+            if placed != len(raw_frames):
+                raise ValueError(
+                    f"{image_path.name}: {len(raw_frames) - placed} of {len(raw_frames)} dense cells were "
+                    f"blank after background removal; regenerate the sheet."
+                )
+            animation_source = "dense_frames"
+            continuity_report = continuity_qc(
+                normalized_frames,
+                quality_mode,
+                motion_profile,
+                motion_template,
+                strict=strict_continuity_qc,
+                caption_reserved_height=caption_reserved_height,
+            )
+            if continuity_report["status"] == "fail" and strict_continuity_qc:
+                errors = "; ".join(str(error) for error in continuity_report["errors"])
+                raise ValueError(f"{image_path.name} failed continuity QC: {errors}")
+            if continuity_report["status"] == "warning" and strict_continuity_qc and not allow_qc_warnings:
+                warnings = "; ".join(str(warning) for warning in continuity_report["warnings"])
+                raise ValueError(f"{image_path.name} has continuity warnings: {warnings}")
+            frames = caption_source_frames(normalized_frames, entry.text, font_path)
         else:
             preview_only = True
             if mode == "wechat" and quality_mode == "submission" and strict_qc:
@@ -3247,13 +3316,16 @@ def build_pack(
         named_gif = named_dir / f"{named_slug}.gif"
         numbered_gif = main_dir / f"{index:02d}.gif"
         timeline_steps = normalization_meta.get("timeline") if source_mode == "keyposes" else None
-        frame_durations = (
-            [int(step["duration_ms"]) for step in timeline_steps]
-            if timeline_steps
+        if source_mode == "dense_frames":
+            frame_durations = dense_frame_durations(len(frames))
+        elif (
+            timeline_steps
             and len(timeline_steps) == len(frames)
             and all("duration_ms" in step for step in timeline_steps)
-            else None
-        )
+        ):
+            frame_durations = [int(step["duration_ms"]) for step in timeline_steps]
+        else:
+            frame_durations = None
         gif_size = save_gif_under_limit(
             frames, numbered_gif, WECHAT_SPEC["main"]["max_bytes"], durations=frame_durations
         )

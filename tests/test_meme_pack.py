@@ -135,6 +135,32 @@ def make_keypose_sheets(tmp_path: Path, count: int = 24, layout: str = "2x2") ->
     return source
 
 
+def make_dense_sheets(tmp_path: Path, count: int = 16, layout: str = "2x4") -> Path:
+    """Synthetic dense exposure sheets: every cell is a genuine frame on a #FF00FF background,
+    each drawn at a slightly different SIZE (the model's per-cell drift that normalize_dense_frames
+    must remove) with a small pose change, and a clear margin so no subject touches a cell edge."""
+    meme_pack = load_module()
+    rows, cols = meme_pack.parse_sheet_layout(layout)
+    source = tmp_path / f"dense-{layout}"
+    source.mkdir()
+    cell = 128
+    size_drift = [0, 2, 4, 2, 0, -2, -4, -2]
+    eye_drift = [0, 1, 2, 1, 0, -1, -2, -1]
+    for index in range(count):
+        sheet = Image.new("RGBA", (cols * cell, rows * cell), (255, 0, 255, 255))
+        draw = ImageDraw.Draw(sheet)
+        for frame in range(rows * cols):
+            cx = (frame % cols) * cell + cell // 2
+            cy = (frame // cols) * cell + cell // 2
+            half = 34 + size_drift[frame % len(size_drift)]  # per-cell size pulse
+            draw.rounded_rectangle((cx - half, cy - half, cx + half, cy + half), radius=18, fill=(70, 120, 220, 255))
+            shift = eye_drift[frame % len(eye_drift)]
+            draw.ellipse((cx - 16 + shift, cy - 8, cx - 8 + shift, cy), fill=(255, 255, 255, 255))
+            draw.ellipse((cx + 8 + shift, cy - 8, cx + 16 + shift, cy), fill=(255, 255, 255, 255))
+        sheet.save(source / f"{index + 1:02d}-{layout}.png")
+    return source
+
+
 def make_single_motion_sheet(
     tmp_path: Path,
     layout: str = "2x4",
@@ -408,6 +434,21 @@ def test_plan_pack_can_request_legacy_16_frame_4x4_motion_sheet():
     assert len(set(prompt_plan["frame_beats"])) > 10
     assert any("in-between" in beat for beat in prompt_plan["frame_beats"])
     assert prompt_plan["16_frame_beats"] == prompt_plan["frame_beats"]
+
+
+def test_plan_pack_refuses_dense_frames_until_planning_is_wired():
+    meme_pack = load_module()
+    # dense build/qc are ready, but plan-pack would still hand back motion_sheet-style prompts,
+    # so it must refuse rather than produce the wrong raw material (see codex audit, Chunk D).
+    with pytest.raises(ValueError, match="dense_frames.py"):
+        meme_pack.plan_pack(
+            subject="stylized office avatar with glasses",
+            persona="码农",
+            pack_size=16,
+            mode="wechat",
+            source_mode="dense_frames",
+            animation_layout="2x4",
+        )
 
 
 def test_render_keypose_motion_uses_template_to_create_16_frames(tmp_path: Path):
@@ -1061,6 +1102,61 @@ def test_build_pack_uses_16_frame_4x4_motion_sheet_when_under_limit(tmp_path: Pa
     assert first_item["gif_frame_count"] >= 15
     assert 140 <= first_item["gif_duration_ms"] <= 160
     assert gif.n_frames >= 15
+
+
+def test_build_pack_dense_frames_registers_size_and_times_frames(tmp_path: Path):
+    meme_pack = load_module()
+    source = make_dense_sheets(tmp_path, 16, "2x4")
+    output = tmp_path / "pack"
+
+    result = meme_pack.build_pack(
+        source_dir=source,
+        output_dir=output,
+        entries=meme_pack.default_entries("码农", 16),
+        mode="wechat",
+        source_mode="dense_frames",
+        source_layout="2x4",
+        strict_continuity_qc=False,
+    )
+
+    first = result["items"][0]
+    assert first["source_mode"] == "dense_frames"
+    assert first["animation_source"] == "dense_frames"
+    assert first["source_frame_count"] == 8
+    assert first["rendered_frame_count"] == 8
+    assert first["scale_normalized"] is True
+
+    gif = Image.open(output / "wechat-submit" / "main" / "01.gif")
+    assert gif.n_frames == 8  # genuine dense frames all differ -> none merged away
+    durations = [frame.info["duration"] for frame in ImageSequence.Iterator(gif)]
+    assert len(set(durations)) > 1  # per-frame timing applied, not a single scalar
+    assert durations[0] > durations[1]  # neutral first cell holds the loop's beat
+
+
+def test_build_pack_dense_frames_rejects_blank_cell(tmp_path: Path):
+    meme_pack = load_module()
+    source = make_dense_sheets(tmp_path, 16, "2x4")
+    # Wipe the bottom-right cell of the first sheet back to pure chroma: it keys to an empty
+    # frame, so the model effectively dropped a frame and the build must refuse to ship it.
+    sheet_path = source / "01-2x4.png"
+    sheet = Image.open(sheet_path).convert("RGBA")
+    cell_w, cell_h = sheet.width // 4, sheet.height // 2
+    ImageDraw.Draw(sheet).rectangle(
+        (sheet.width - cell_w, cell_h, sheet.width, sheet.height), fill=(255, 0, 255, 255)
+    )
+    sheet.save(sheet_path)
+
+    with pytest.raises(ValueError, match="blank after background removal"):
+        meme_pack.build_pack(
+            source_dir=source,
+            output_dir=tmp_path / "pack",
+            entries=meme_pack.default_entries("码农", 16),
+            mode="wechat",
+            source_mode="dense_frames",
+            source_layout="2x4",
+            strict_qc=False,
+            strict_continuity_qc=False,
+        )
 
 
 def test_build_pack_keyposes_renders_16_frame_gif_and_manifest_fields(tmp_path: Path):
