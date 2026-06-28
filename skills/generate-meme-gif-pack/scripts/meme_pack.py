@@ -2302,6 +2302,42 @@ def normalize_motion_frames(
     }
 
 
+def _band_centroid_x(frame: Image.Image, lo_frac: float, hi_frac: float) -> float | None:
+    """Alpha-weighted x-centroid of a horizontal band of the subject's bbox (by height fraction).
+
+    Used to read where the head band (top slice) and the body/core band (lower slice) sit, so
+    dense placement can compare a head-anchored layout against plain bbox-centering. Returns the
+    bbox center x as a fallback, or None for an empty frame.
+    """
+    bbox = frame.getbbox()
+    if not bbox:
+        return None
+    x0, y0, x1, y1 = bbox
+    height = y1 - y0
+    y_lo = y0 + int(height * lo_frac)
+    y_hi = max(y_lo + 1, y0 + int(height * hi_frac))
+    region = frame.getchannel("A").crop((x0, y_lo, x1, y_hi))
+    width = region.width
+    weight_sum = 0
+    x_sum = 0
+    for index, alpha in enumerate(pixel_data(region)):
+        if alpha:
+            weight_sum += alpha
+            x_sum += alpha * (x0 + index % width)
+    if not weight_sum:
+        return (x0 + x1) / 2
+    return x_sum / weight_sum
+
+
+def _subject_head_centroid_x(frame: Image.Image, top_frac: float = 0.34) -> float | None:
+    """Alpha-weighted x-centroid of the subject's head region (top slice of its bbox).
+
+    The head dominates the top slice by mass, so a thin raised arm/prop barely moves it; holding
+    it still keeps the head from swaying while an arm swings. Returns bbox center as a fallback.
+    """
+    return _band_centroid_x(frame, 0.0, top_frac)
+
+
 def normalize_dense_frames(
     raw_cells: list[Image.Image],
     *,
@@ -2323,29 +2359,69 @@ def normalize_dense_frames(
     visual_height = max(1, size[1] - caption_reserved_height)
     target_height = max(1, int(visual_height * subject_height_ratio))
     target_width = max(1, size[0] - 8)  # small horizontal margin so a wide pose never clips
-    normalized: list[Image.Image] = []
-    placed = 0
+
+    # Pass 1: size-normalize each subject and work out BOTH candidate horizontal placements -
+    # plain bbox-centering and head-anchored - plus where the head band and body band land under
+    # each, so the gate can compare the two layouts directly.
+    prepared: list[dict | None] = []
+    head_bbox: list[float] = []    # head x if we bbox-center (the sway we might cancel)
+    head_anchor: list[float] = []  # head x if we head-anchor (~constant by construction)
+    body_bbox: list[float] = []    # body/core x if we bbox-center
+    body_anchor: list[float] = []  # body/core x if we head-anchor
     for cell in raw_cells:
         keyed = remove_chroma_background(cell.convert("RGBA"), color=chroma, tolerance=40)
         filtered, _ = filter_subject_components(clean_generated_frame_background(keyed))
         bbox = filtered.getbbox()
+        if not bbox:
+            prepared.append(None)
+            continue
+        subject = filtered.crop(bbox)
+        # Fit each subject to the same target height; bind to width only for an unusually wide
+        # pose so it never clips horizontally (height stays uniform in the common case).
+        scale = min(target_height / subject.height, target_width / subject.width)
+        new_width = max(1, int(round(subject.width * scale)))
+        new_height = max(1, int(round(subject.height * scale)))
+        resized = subject.resize((new_width, new_height), Image.Resampling.LANCZOS)
+        bbox_x = (size[0] - new_width) // 2
+        head_cx = _subject_head_centroid_x(resized)
+        body_cx = _band_centroid_x(resized, 0.4, 1.0)
+        anchor_x = bbox_x if head_cx is None else max(0, min(size[0] - new_width, int(round(size[0] / 2 - head_cx))))
+        prepared.append({"img": resized, "bbox_x": bbox_x, "anchor_x": anchor_x, "w": new_width, "h": new_height})
+        if head_cx is not None:
+            head_bbox.append(bbox_x + head_cx)
+            head_anchor.append(anchor_x + head_cx)
+        if body_cx is not None:
+            body_bbox.append(bbox_x + body_cx)
+            body_anchor.append(anchor_x + body_cx)
+
+    # Decide by COMPARING the two layouts, not by a temporal-spread heuristic (which both
+    # false-trips on legit lower-body motion and misses a stable off-center prop). Anchor only if
+    # it MEANINGFULLY steadies the head (head_gain) AND does not materially add frame-to-frame
+    # SWING to the body (body_drift_delta). A static body offset is fine - characters are not
+    # symmetric about the head - so only the body's drift is penalised, not its centeredness; a
+    # stable off-center prop is rejected anyway because it offers no head_gain.
+    def _spread(values: list[float]) -> float:
+        return (max(values) - min(values)) if values else 0.0
+
+    head_gain = _spread(head_bbox) - _spread(head_anchor)
+    body_drift_delta = _spread(body_anchor) - _spread(body_bbox)
+    head_anchored = bool(head_anchor) and head_gain >= 5.0 and body_drift_delta <= 15.0
+
+    # Pass 2: place each subject by the chosen layout.
+    normalized: list[Image.Image] = []
+    placed = 0
+    for item in prepared:
         canvas = Image.new("RGBA", size, (0, 0, 0, 0))
-        if bbox:
-            subject = filtered.crop(bbox)
-            # Fit each subject to the same target height; bind to width only for an unusually
-            # wide pose so it never clips horizontally (height stays uniform in the common case).
-            scale = min(target_height / subject.height, target_width / subject.width)
-            new_width = max(1, int(round(subject.width * scale)))
-            new_height = max(1, int(round(subject.height * scale)))
-            resized = subject.resize((new_width, new_height), Image.Resampling.LANCZOS)
-            x = (size[0] - new_width) // 2
-            y = max(2, (visual_height - new_height) // 2)
-            canvas.alpha_composite(resized, (x, y))
+        if item is not None:
+            x = item["anchor_x"] if head_anchored else item["bbox_x"]
+            y = max(2, (visual_height - item["h"]) // 2)
+            canvas.alpha_composite(item["img"], (x, y))
             placed += 1
         normalized.append(canvas)
     return normalized, {
         "scale_normalized": True,
         "size_normalized": True,
+        "head_anchored": head_anchored,
         "source_mode": "dense_frames",
         "rendered_frame_count": len(normalized),
         "placed_frame_count": placed,

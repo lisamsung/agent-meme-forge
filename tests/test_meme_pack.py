@@ -68,6 +68,64 @@ def test_normalize_dense_frames_uniform_subject_size():
     assert max(heights) - min(heights) <= 3  # size pulse removed: every subject is the same height
 
 
+def test_normalize_dense_frames_anchors_head_against_arm_swing():
+    meme_pack = load_module()
+    # Big fixed head; a lower arm swings out asymmetrically, widening the bbox the way a real
+    # arm-raise does. bbox-centering would slide the whole subject to recenter the widening bbox
+    # (head sways); head anchoring keeps the head's x put without adding body swing, so the
+    # comparative gate adopts it.
+    cells = []
+    for arm_len in (0, 25, 55, 85, 55, 25, 0, 25):
+        cell = Image.new("RGBA", (300, 300), (255, 0, 255, 255))
+        draw = ImageDraw.Draw(cell)
+        draw.ellipse((120, 30, 200, 115), fill=(60, 120, 220, 255))  # big head, fixed, dominant
+        draw.rounded_rectangle((125, 115, 195, 225), radius=16, fill=(60, 120, 220, 255))  # body, fixed
+        if arm_len:  # arm at lower-body level, extends right -> asymmetric bbox growth, head clean
+            draw.rectangle((195, 180, 195 + arm_len, 205), fill=(60, 120, 220, 255))
+        cells.append(cell)
+
+    frames, meta = meme_pack.normalize_dense_frames(cells)
+    assert meta["placed_frame_count"] == 8
+    assert meta["head_anchored"] is True  # steadies the head without adding body swing -> adopted
+    head_xs = [meme_pack._subject_head_centroid_x(frame) for frame in frames]
+    assert max(head_xs) - min(head_xs) <= 6  # head holds; bbox-centering would slide further
+
+
+def test_normalize_dense_frames_falls_back_when_top_band_unstable():
+    meme_pack = load_module()
+    # A LARGE prop floats to the upper-right and rises through the head band frame to frame. Its
+    # mass pollutes the top-band "head" centroid, so head anchoring would shove the body across
+    # the canvas. The instability gate must detect the wild swing and fall back to plain
+    # bbox-centering, keeping the body roughly put instead of making it worse than no anchoring.
+    cells = []
+    for prop_y in (10, 10, 40, 90, 140, 90, 40, 10):
+        cell = Image.new("RGBA", (300, 300), (255, 0, 255, 255))
+        draw = ImageDraw.Draw(cell)
+        draw.ellipse((130, 70, 190, 130), fill=(60, 120, 220, 255))  # head, fixed center
+        draw.rounded_rectangle((120, 130, 200, 240), radius=16, fill=(60, 120, 220, 255))  # body, fixed
+        draw.rectangle((205, prop_y, 255, prop_y + 55), fill=(60, 120, 220, 255))  # big prop, far right
+        cells.append(cell)
+
+    frames, meta = meme_pack.normalize_dense_frames(cells)
+    assert meta["placed_frame_count"] == 8
+    assert meta["head_anchored"] is False  # gate tripped: top band is unreliable
+
+    def body_centroid_x(frame):
+        bbox = frame.getbbox()
+        alpha = frame.getchannel("A").crop((bbox[0], bbox[1] + (bbox[3] - bbox[1]) // 2, bbox[2], bbox[3]))
+        width = alpha.width
+        weight = total = 0
+        for index, value in enumerate(meme_pack.pixel_data(alpha)):
+            if value:
+                weight += value
+                total += value * (bbox[0] + index % width)
+        return total / weight if weight else None
+
+    body_xs = [body_centroid_x(frame) for frame in frames]
+    # Fallback keeps the body near bbox-center (~12px); head anchoring here would swing it ~47px.
+    assert max(body_xs) - min(body_xs) <= 20
+
+
 def make_source_frames(tmp_path: Path, count: int = 24) -> Path:
     source = tmp_path / "source"
     source.mkdir()
