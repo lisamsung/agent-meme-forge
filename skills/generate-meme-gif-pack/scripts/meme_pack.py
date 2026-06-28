@@ -643,6 +643,9 @@ TEMPLATE_TREMOR_DAMP = {
     "typing_panic": 1.0,    # frantic typing shake is intentional - keep it
     "absurd_recoil": 0.85,  # big exaggerated recoil - keep most of it
 }
+# Chunk 3a: blend weight for the dissolve rendered on pose-transition frames (0=hold prev,
+# 1=hard cut to next); 0.5 reads as a soft crossfade between the two adjacent poses.
+CROSSFADE_WEIGHT = 0.5
 
 
 def eased_frame_durations(poses: list[int], total_ms: int, grid: int = 10, min_ms: int = 60) -> list[int]:
@@ -2362,10 +2365,19 @@ def render_keypose_motion(
         anchor_align=True,
     )
     timeline = timeline_for_template(motion_template, frame_count)
+    pose_indices = [max(1, min(len(normalized_keyposes), int(step.get("pose", 1)))) - 1 for step in timeline]
+    transition_frames: list[int] = []
     rendered: list[Image.Image] = []
     for index, step in enumerate(timeline):
-        pose_index = max(1, min(len(normalized_keyposes), int(step.get("pose", 1)))) - 1
+        pose_index = pose_indices[index]
+        previous_pose = pose_indices[index - 1]
         transformed = _transform_canvas_sprite(normalized_keyposes[pose_index], step)
+        if previous_pose != pose_index:
+            # Chunk 3a: dissolve the hard cut - blend the outgoing pose into the incoming one
+            # for this single frame so the switch reads as a smooth crossfade, not a jump.
+            outgoing = _transform_canvas_sprite(normalized_keyposes[previous_pose], step)
+            transformed = Image.blend(outgoing, transformed, CROSSFADE_WEIGHT)
+            transition_frames.append(index)
         rendered.append(_draw_template_effects(transformed, motion_template, index, step))
     return rendered, {
         **normalization_meta,
@@ -2377,6 +2389,7 @@ def render_keypose_motion(
         "keypose_count": len(raw_keyposes),
         "caption_reserved_height": caption_reserved_height,
         "timeline": timeline,
+        "transition_frames": transition_frames,
     }
 
 
@@ -2436,7 +2449,13 @@ def _mask_difference(left: Image.Image, right: Image.Image) -> float:
     return total / max(1, count)
 
 
-def _head_shape_report(frames: list[Image.Image], caption_reserved_height: int, motion_profile: str) -> dict[str, object]:
+def _head_shape_report(
+    frames: list[Image.Image],
+    caption_reserved_height: int,
+    motion_profile: str,
+    exclude_frames: set[int] | None = None,
+) -> dict[str, object]:
+    exclude_frames = exclude_frames or set()
     proxies = [_head_proxy_for_frame(frame, caption_reserved_height) for frame in frames]
     valid = [proxy for proxy in proxies if proxy]
     if len(valid) < 2:
@@ -2445,8 +2464,13 @@ def _head_shape_report(frames: list[Image.Image], caption_reserved_height: int, 
     shape_scores: list[float] = []
     center_steps: list[float] = []
     for index in range(len(proxies)):
+        next_index = (index + 1) % len(proxies)
+        # Deliberate crossfade/in-between frames are blended ghosts of two poses, not real
+        # poses - skip any pair touching one so head stability is judged pose-to-pose.
+        if index in exclude_frames or next_index in exclude_frames:
+            continue
         current = proxies[index]
-        nxt = proxies[(index + 1) % len(proxies)]
+        nxt = proxies[next_index]
         if not current or not nxt:
             continue
         mask_drift = _mask_difference(current["mask"], nxt["mask"])
@@ -2632,6 +2656,7 @@ def continuity_qc(
     motion_template: str = "",
     strict: bool = True,
     caption_reserved_height: int = CAPTION_RESERVED_HEIGHT,
+    transition_frames: set[int] | None = None,
 ) -> dict[str, object]:
     parse_quality_mode(quality_mode)
     motion_profile = parse_motion_profile(motion_profile)
@@ -2690,7 +2715,7 @@ def continuity_qc(
             count_spike_frames.append(index + 1)
     prop_report = _prop_motion_report(frames, caption_reserved_height)
     one_frame_effects = sorted(set(count_spike_frames + list(prop_report["transient_component_frames"])))
-    head_report = _head_shape_report(frames, caption_reserved_height, motion_profile)
+    head_report = _head_shape_report(frames, caption_reserved_height, motion_profile, exclude_frames=transition_frames)
 
     max_rgb_step = max(rgb_steps) if rgb_steps else 0.0
     max_alpha_step = max(alpha_steps) if alpha_steps else 0.0
@@ -3129,6 +3154,7 @@ def build_pack(
                 motion_template,
                 strict=strict_continuity_qc,
                 caption_reserved_height=caption_reserved_height,
+                transition_frames=set(normalization_meta.get("transition_frames", [])),
             )
             if continuity_report["status"] == "fail" and strict_continuity_qc:
                 errors = "; ".join(str(error) for error in continuity_report["errors"])

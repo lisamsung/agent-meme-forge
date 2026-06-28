@@ -466,6 +466,52 @@ def test_normalize_anchor_align_registers_drifting_subjects():
     assert skip_meta["anchor_aligned"] is False
 
 
+def test_render_keypose_motion_crossfades_pose_transitions(tmp_path: Path):
+    meme_pack = load_module()
+    source = make_keypose_sheets(tmp_path, 1, "2x2")
+    keyposes, _, _ = meme_pack.load_source_frames(source / "01-2x2.png", source_layout="2x2")
+
+    frames, meta = meme_pack.render_keypose_motion(
+        keyposes, motion_template="soul_offline", frame_count=16, motion_profile="micro"
+    )
+
+    poses = [int(step["pose"]) for step in meta["timeline"]]
+    expected = [index for index in range(len(poses)) if poses[index] != poses[index - 1]]
+    assert meta["transition_frames"] == expected  # crossfade frames mark every pose change
+    assert expected  # soul_offline has real pose changes to dissolve
+
+    # Prove the transition frame is a real dissolve, not just metadata (would fail if blending
+    # were removed): rebuild the pure current-pose render and confirm the actual frame differs
+    # because the previous pose is blended in.
+    normalized, _ = meme_pack.normalize_motion_frames(keyposes, alignment_mode="stable", anchor_align=True)
+    transition = expected[0]
+    step = meta["timeline"][transition]
+    pose_now = max(1, min(len(normalized), int(step["pose"]))) - 1
+    pure = meme_pack._draw_template_effects(
+        meme_pack._transform_canvas_sprite(normalized[pose_now], step), "soul_offline", transition, step
+    )
+    blended_diff = sum(
+        1 for actual, plain in zip(meme_pack.pixel_data(frames[transition]), meme_pack.pixel_data(pure)) if actual != plain
+    )
+    assert blended_diff > 50  # the dissolve actually changed pixels vs a hard single-pose frame
+
+
+def test_head_shape_report_excludes_transition_frames():
+    meme_pack = load_module()
+    base = Image.new("RGBA", (240, 240), (0, 0, 0, 0))
+    ImageDraw.Draw(base).ellipse((90, 40, 150, 150), fill=(60, 120, 220, 255))
+    shifted = Image.new("RGBA", (240, 240), (0, 0, 0, 0))
+    ImageDraw.Draw(shifted).ellipse((150, 40, 210, 150), fill=(60, 120, 220, 255))  # head jumps right
+    frames = [base, shifted, base, base]
+
+    full = meme_pack._head_shape_report(frames, meme_pack.CAPTION_RESERVED_HEIGHT, "micro")
+    excluded = meme_pack._head_shape_report(
+        frames, meme_pack.CAPTION_RESERVED_HEIGHT, "micro", exclude_frames={1}
+    )
+    assert full["max_head_center_step_px"] > 10  # the shifted frame reads as a big head jump
+    assert excluded["max_head_center_step_px"] < full["max_head_center_step_px"]  # exempting it calms QC
+
+
 def test_motion_template_plan_exposes_effects_and_qc_policy():
     meme_pack = load_module()
 
