@@ -85,6 +85,7 @@ SHEET_LAYOUTS = {
     "2x2": (2, 2),
     "2x3": (2, 3),
     "2x4": (2, 4),
+    "4x2": (4, 2),  # portrait twin of 2x4: the image model often returns a tall 8-cell sheet
     "3x3": (3, 3),
     "4x4": (4, 4),
 }
@@ -125,8 +126,9 @@ DEFAULT_KEYPOSE_LAYOUT = "2x2"
 KEYPOSE_LAYOUTS = {"2x2", "1x4"}
 MOTION_SHEET_LAYOUTS = {"2x4", "4x4"}
 # Dense real frames: the model draws every cell as a genuine frame, so the grid is the
-# animation itself. 2x4 (8) is the research sweet spot; 4x4 (16) suits clean cyclic actions.
-DENSE_FRAME_LAYOUTS = {"2x4", "4x4"}
+# animation itself. 2x4 (8) is the research sweet spot; 4x2 is its portrait twin (the provider
+# ignores the requested size and often returns a tall sheet); 4x4 (16) suits clean cyclic actions.
+DENSE_FRAME_LAYOUTS = {"2x4", "4x2", "4x4"}
 DEFAULT_RENDER_FRAME_COUNT = 16
 CAPTION_RESERVED_HEIGHT = 76
 MIN_CAPTION_RESERVED_HEIGHT = 42
@@ -1769,6 +1771,34 @@ def infer_sheet_layout(path: Path, image: Image.Image, source_layout: str = "aut
     return "single"
 
 
+def dense_layout_for_sheet(image: Image.Image, requested_layout: str = "2x4") -> str:
+    """Pick the grid that matches the sheet's actual orientation.
+
+    The image provider ignores the requested output size and often returns a TALL sheet, drawing
+    the 8 frames as 4 rows x 2 columns instead of 2 rows x 4 columns. Slicing a portrait sheet as
+    2x4 shreds every frame, so resolve an 8-cell dense sheet to 4x2 when it is taller than wide and
+    2x4 otherwise. Non-8-cell dense layouts (e.g. 4x4) pass through unchanged.
+    """
+    # Explicit non-8-cell layouts (e.g. 4x4 = 16 frames) are preserved regardless of orientation -
+    # never silently halve a 16-frame sheet to 8.
+    if requested_layout in SHEET_LAYOUTS:
+        rows, cols = parse_sheet_layout(requested_layout)
+        if rows * cols != 8:
+            return requested_layout
+    # A CLEARLY portrait sheet is the 4-row x 2-col twin of 2x4 (the generic inferrer has no
+    # portrait-8-cell band, so dense owns that call here); this also rescues an 'auto'-inferred
+    # "single" on a tall dense sheet.
+    if image.height > image.width * 1.05:
+        return "4x2"
+    if requested_layout not in SHEET_LAYOUTS:
+        return requested_layout  # genuine single / non-grid that is not portrait -> leave as-is
+    # 8-cell and not portrait: a clearly wide sheet is 2x4; on a near-square sheet (>5% deadband, so
+    # a 1px wobble cannot flip it) keep whatever was requested/inferred (e.g. an explicit 4x2).
+    if image.width > image.height * 1.05:
+        return "2x4"
+    return requested_layout
+
+
 def split_sheet_frames(image: Image.Image, layout: str) -> list[Image.Image]:
     rows, cols = parse_sheet_layout(layout)
     frames: list[Image.Image] = []
@@ -2160,6 +2190,12 @@ def qc_sheet(
     else:
         rgba = image.convert("RGBA")
         detected_layout = infer_sheet_layout(input_path, rgba, source_layout)
+        if source_mode == "dense_frames":
+            # The provider ignores the requested size, so reorient to the sheet's actual shape - but
+            # AFTER inference, so 'auto' still recovers a 4x4 sheet (by filename/ratio) while a tall
+            # sheet is read as 4x2 instead of shredded as 2x4. The standalone qc-sheet step runs
+            # before build, so it must do this too.
+            detected_layout = dense_layout_for_sheet(rgba, detected_layout)
         if detected_layout == "single":
             frames = [rgba]
             animation_source = "single"
@@ -2198,6 +2234,14 @@ def qc_sheet(
     )
     if source_mode in ("keyposes", "dense_frames"):
         frame_errors = [error for error in frame_errors if not error.startswith("frame size drift")]
+    if source_mode == "dense_frames":
+        # normalize_dense_frames re-frames each subject (crop to bbox + recenter with margin), so a
+        # subject merely sitting NEAR the raw cell edge is not cropped in the final GIF - that is the
+        # dominant false alarm and we drop it. Caveat: a subject CONSISTENTLY cropped the same way in
+        # every cell can still slip past (continuity QC checks deltas, not absolute cropping), so the
+        # raw edge_touch flag is kept in the report below for visibility even though it no longer gates.
+        frame_errors = [error for error in frame_errors if "touches the cell edge" not in error]
+        frame_warnings = [warning for warning in frame_warnings if "touches the cell edge" not in warning]
     warnings.extend(frame_warnings)
     errors.extend(frame_errors)
 
@@ -3324,6 +3368,13 @@ def build_pack(
         read_layout = keypose_layout if source_mode == "keyposes" and source_layout == "auto" else source_layout
         if source_mode == "single_bounce":
             read_layout = "single"
+        if source_mode == "dense_frames":
+            # The provider ignores the requested size, so resolve the grid to the sheet's actual
+            # shape before QC/slicing. Infer first (so 'auto'/filename can still recover a 4x4
+            # sheet), then reorient an 8-cell sheet to 2x4 (wide) or 4x2 (tall).
+            with Image.open(image_path) as probe:
+                probe_rgba = probe.convert("RGBA")
+                read_layout = dense_layout_for_sheet(probe_rgba, infer_sheet_layout(image_path, probe_rgba, source_layout))
         qc_report = qc_sheet(
             image_path,
             read_layout,

@@ -56,7 +56,10 @@ WeChat submission package + GIFs + manifest/qc_report
 
 ## What the local processor does (`normalize_dense_frames` → assembly)
 
-1. **Slice** the sheet into cells; reject if any cell came back blank (the model dropped a frame).
+1. **Slice** the sheet into cells — orientation-aware. The provider ignores the requested output
+   size and often returns a TALL sheet (8 frames as 4 rows x 2 columns instead of 2x4), so build
+   detects the actual orientation and slices `2x4` (wide) or `4x2` (tall); both recover the 8
+   frames in the same row-major order. Reject if any cell came back blank (the model dropped a frame).
 2. **Size-register** — gpt-image-2 has ~5% per-cell size drift that reads as 忽大忽小; every subject
    is scaled to one uniform height.
 3. **Head-anchor (x only)** — a swinging arm/prop changes the silhouette, and bbox-centering would
@@ -76,3 +79,7 @@ WeChat submission package + GIFs + manifest/qc_report
   (the default) stays well under (~100KB).
 - Local QC cannot verify *character identity per cell* — that is a generation-time lever (reference
   anchoring + restated traits), not something the processor can catch.
+- The provider ignores the requested output size (a 16-pack came back at aspect ratios from 2:1 to
+  1:2). Slicing is orientation-aware so this is handled, but expect a few sheets per pack to need
+  regeneration for generation-quality reasons (a one-frame prop/effect flash, faint panel-line
+  residue) — continuity QC and sheet warnings flag exactly those; regenerate and rebuild.

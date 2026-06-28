@@ -1241,6 +1241,66 @@ def test_build_pack_dense_frames_rejects_blank_cell(tmp_path: Path):
         )
 
 
+def test_dense_layout_for_sheet_picks_orientation():
+    meme_pack = load_module()
+    wide = Image.new("RGBA", (1774, 887), (0, 0, 0, 0))
+    tall = Image.new("RGBA", (887, 1774), (0, 0, 0, 0))
+    square = Image.new("RGBA", (1254, 1254), (0, 0, 0, 0))
+    assert meme_pack.dense_layout_for_sheet(wide, "2x4") == "2x4"
+    assert meme_pack.dense_layout_for_sheet(tall, "2x4") == "4x2"  # provider returned a tall sheet
+    assert meme_pack.dense_layout_for_sheet(square, "2x4") == "2x4"  # near-square keeps requested
+    assert meme_pack.dense_layout_for_sheet(square, "4x2") == "4x2"  # deadband preserves explicit 4x2
+    assert meme_pack.dense_layout_for_sheet(tall, "4x4") == "4x4"  # non-8-cell preserved even if tall
+    assert meme_pack.dense_layout_for_sheet(square, "4x4") == "4x4"  # square 4x4 kept (not halved to 2x4)
+    assert meme_pack.dense_layout_for_sheet(tall, "single") == "4x2"  # auto-inferred 'single' on a tall dense sheet is rescued
+
+
+def test_qc_sheet_dense_auto_keeps_4x4(tmp_path: Path):
+    meme_pack = load_module()
+    # dense + auto must still recover a 4x4 (16-cell) sheet by filename, not mis-slice it as 2x4
+    # (codex Chunk F re-audit regression).
+    source = make_dense_sheets(tmp_path, 1, "4x4")
+    sheet = next(source.glob("*.png"))
+    report = meme_pack.qc_sheet(sheet, "auto", "submission", strict=False, source_mode="dense_frames")
+    assert report["source_layout"] == "4x4"
+    assert report["frame_count"] == 16
+
+
+def test_qc_sheet_dense_reads_portrait_sheet_as_4x2(tmp_path: Path):
+    meme_pack = load_module()
+    # The standalone qc-sheet step runs BEFORE build; it must detect a tall dense sheet as 4x2
+    # rather than shredding it as the requested 2x4 (codex Chunk F audit, BLOCKER).
+    source = make_dense_sheets(tmp_path, 1, "4x2")
+    sheet = next(source.glob("*.png"))
+    report = meme_pack.qc_sheet(sheet, "2x4", "submission", strict=False, source_mode="dense_frames")
+    assert report["source_layout"] == "4x2"
+    assert report["frame_count"] == 8
+
+
+def test_build_pack_dense_reads_portrait_sheet_as_4x2(tmp_path: Path):
+    meme_pack = load_module()
+    # The provider ignores the requested size and often returns a TALL 8-cell sheet (4 rows x 2
+    # cols). build-pack must detect the orientation and slice 4x2 instead of shredding it as 2x4 -
+    # the bug a full real pack surfaced (3/16 portrait sheets sliced to garbage).
+    source = make_dense_sheets(tmp_path, 16, "4x2")
+    output = tmp_path / "pack"
+
+    result = meme_pack.build_pack(
+        source_dir=source,
+        output_dir=output,
+        entries=meme_pack.default_entries("码农", 16),
+        mode="wechat",
+        source_mode="dense_frames",
+        source_layout="2x4",  # request 2x4; the orientation override must correct it to 4x2
+        strict_continuity_qc=False,
+    )
+
+    first = result["items"][0]
+    assert first["source_layout"] == "4x2"  # detected portrait, not the requested 2x4
+    assert first["source_frame_count"] == 8
+    assert first["rendered_frame_count"] == 8
+
+
 def test_build_pack_keyposes_renders_16_frame_gif_and_manifest_fields(tmp_path: Path):
     meme_pack = load_module()
     source = make_keypose_sheets(tmp_path, 24, "2x2")
