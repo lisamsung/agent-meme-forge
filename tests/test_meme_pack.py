@@ -46,6 +46,28 @@ def test_dense_frames_exposure_sheet_prompt_encodes_the_learnings():
     assert "same glasses, same cap" in prompt  # traits restated for identity hold
 
 
+def test_normalize_dense_frames_uniform_subject_size():
+    meme_pack = load_module()
+    cells = []
+    for radius in (40, 70, 55):  # same blob drawn at different sizes (the model's per-cell size drift)
+        cell = Image.new("RGBA", (300, 300), (255, 0, 255, 255))  # solid #FF00FF background
+        ImageDraw.Draw(cell).ellipse(
+            (150 - radius, 150 - radius, 150 + radius, 150 + radius), fill=(60, 120, 220, 255)
+        )
+        cells.append(cell)
+
+    frames, meta = meme_pack.normalize_dense_frames(cells)
+    assert meta["size_normalized"] is True
+    assert meta["placed_frame_count"] == 3
+
+    heights = []
+    for frame in frames:
+        filtered, _ = meme_pack.filter_subject_components(meme_pack.clean_generated_frame_background(frame))
+        bbox = filtered.getbbox()
+        heights.append((bbox[3] - bbox[1]) if bbox else 0)
+    assert max(heights) - min(heights) <= 3  # size pulse removed: every subject is the same height
+
+
 def make_source_frames(tmp_path: Path, count: int = 24) -> Path:
     source = tmp_path / "source"
     source.mkdir()

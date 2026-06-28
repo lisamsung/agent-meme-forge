@@ -2268,6 +2268,57 @@ def normalize_motion_frames(
     }
 
 
+def normalize_dense_frames(
+    raw_cells: list[Image.Image],
+    *,
+    size: tuple[int, int] = SUBJECT_CANVAS_SIZE,
+    caption_reserved_height: int = CAPTION_RESERVED_HEIGHT,
+    subject_height_ratio: float = 0.82,
+    chroma: tuple[int, int, int] = (255, 0, 255),
+) -> tuple[list[Image.Image], dict[str, object]]:
+    """Register each model-drawn dense frame's subject to a UNIFORM size and position.
+
+    Dense real frames come back with a few percent per-frame SIZE drift (the model draws the
+    character slightly bigger/smaller per cell), which reads as size pulsing when animated;
+    position anchoring alone does not fix it. This chroma-keys the flat #FF00FF background,
+    then scales every frame's subject to the same target height and centers it, removing both
+    size and position drift before timing/GIF assembly.
+    """
+    if not 0 < subject_height_ratio <= 1:
+        raise ValueError("subject_height_ratio must be in (0, 1]")
+    visual_height = max(1, size[1] - caption_reserved_height)
+    target_height = max(1, int(visual_height * subject_height_ratio))
+    target_width = max(1, size[0] - 8)  # small horizontal margin so a wide pose never clips
+    normalized: list[Image.Image] = []
+    placed = 0
+    for cell in raw_cells:
+        keyed = remove_chroma_background(cell.convert("RGBA"), color=chroma, tolerance=40)
+        filtered, _ = filter_subject_components(clean_generated_frame_background(keyed))
+        bbox = filtered.getbbox()
+        canvas = Image.new("RGBA", size, (0, 0, 0, 0))
+        if bbox:
+            subject = filtered.crop(bbox)
+            # Fit each subject to the same target height; bind to width only for an unusually
+            # wide pose so it never clips horizontally (height stays uniform in the common case).
+            scale = min(target_height / subject.height, target_width / subject.width)
+            new_width = max(1, int(round(subject.width * scale)))
+            new_height = max(1, int(round(subject.height * scale)))
+            resized = subject.resize((new_width, new_height), Image.Resampling.LANCZOS)
+            x = (size[0] - new_width) // 2
+            y = max(2, (visual_height - new_height) // 2)
+            canvas.alpha_composite(resized, (x, y))
+            placed += 1
+        normalized.append(canvas)
+    return normalized, {
+        "scale_normalized": True,
+        "size_normalized": True,
+        "source_mode": "dense_frames",
+        "rendered_frame_count": len(normalized),
+        "placed_frame_count": placed,
+        "subject_target_height": target_height,
+    }
+
+
 def _transform_canvas_sprite(frame: Image.Image, step: dict[str, float | int]) -> Image.Image:
     bbox = frame.getbbox()
     canvas = Image.new("RGBA", frame.size, (0, 0, 0, 0))
