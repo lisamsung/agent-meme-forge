@@ -494,18 +494,42 @@ def test_plan_pack_can_request_legacy_16_frame_4x4_motion_sheet():
     assert prompt_plan["16_frame_beats"] == prompt_plan["frame_beats"]
 
 
-def test_plan_pack_refuses_dense_frames_until_planning_is_wired():
+def test_plan_pack_emits_dense_exposure_sheet_prompts():
     meme_pack = load_module()
-    # dense build/qc are ready, but plan-pack would still hand back motion_sheet-style prompts,
-    # so it must refuse rather than produce the wrong raw material (see codex audit, Chunk D).
-    with pytest.raises(ValueError, match="dense_frames.py"):
+    plan = meme_pack.plan_pack(
+        subject="stylized office avatar with glasses",
+        persona="码农",
+        pack_size=16,
+        mode="wechat",
+        source_mode="dense_frames",
+        animation_layout="2x4",
+    )
+
+    prompt_plan = plan["image_prompts"][0]
+    prompt = prompt_plan["prompt"]
+    assert prompt_plan["source_mode"] == "dense_frames"
+    assert "DENSE exposure sheet" in prompt
+    assert "2x4 grid of 8 equal cells" in prompt
+    assert "do NOT output a single large portrait" in prompt  # anti-single-portrait rule
+    assert "loop cleanly back to the first" in prompt  # engineered loop
+    assert "#FF00FF" in prompt
+    assert "do not draw any text" in prompt  # caption is added locally
+    # the expressive per-frame acting plan is embedded, one cell per frame
+    assert "Frame 1:" in prompt and "Frame 8:" in prompt
+
+
+def test_plan_pack_rejects_invalid_dense_layout():
+    meme_pack = load_module()
+    # dense build/qc only accept 2x4/4x4; plan-pack must refuse other layouts rather than emit a
+    # plan + build command the build will later reject (codex Chunk E audit, BLOCKER).
+    with pytest.raises(ValueError, match="dense_frames supports"):
         meme_pack.plan_pack(
-            subject="stylized office avatar with glasses",
+            subject="x",
             persona="码农",
             pack_size=16,
             mode="wechat",
             source_mode="dense_frames",
-            animation_layout="2x4",
+            animation_layout="1x8",
         )
 
 

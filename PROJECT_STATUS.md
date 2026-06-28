@@ -17,6 +17,13 @@
 - 已新增 `plan-wizard` 交互式入口：新手可以选择参考图或文字概念、人设/场景、画面风格、微信/自用数量、质量模式和输出计划路径。
 - 已新增公开 demo 资产：`docs/assets/ai-mascot-shoudao-lixian.gif`、`ai-mascot-jiazaizhong.gif`、`ai-mascot-wenxianshan.gif` 和 `ai-mascot-sheet-preview.jpg`。
 - GitHub 仓库与 Pages 已发布：`https://github.com/lisamsung/agent-meme-forge` / `https://lisamsung.github.io/agent-meme-forge/`。
+- **已新增「密集真帧」路线（`--source-mode dense_frames`，推荐的最丝滑路径，2026-06-28）**：放弃「4 关键姿势 + 本地伪造动作」，改由生图模型在一张 2x4 曝光表里画 8 张真正逐帧不同的连续帧，本地组装。
+  - 引擎（`meme_pack.py`）：`normalize_dense_frames` 切片 → 统一尺寸（消除模型 ~5% 逐帧尺寸漂移导致的忽大忽小）→ **头质心横向锚定**（消除大幅不对称动作下 bbox 居中引起的头部摆动，14→0.8px；由「放置对比」闸控制，大型偏心道具自动回退 bbox，适合直立角色）→ 逐帧时序（~11fps + 首帧呼吸）→ 中文文案 → continuity QC → 投稿包；空格子（模型漏帧）直接拒。
+  - 生图通道**与厂商解耦**：`scripts/imagegen_client.py`（零依赖 OpenAI 兼容 Images 客户端，端点由 `MEME_IMAGE_*`/`OPENAI_*` 配置）+ `scripts/dense_frames.py`（曝光表/canonical 提示词 + reference 锚定的 `edit` 路径）。
+  - 规划链路已接通：`plan-pack/plan-wizard --source-mode dense_frames` 发出曝光表提示词（角色卡 + 可发性闸 + 逐帧表演计划 + 配方），`qc-sheet`/`build-pack` 已支持；非 `{2x4,4x4}` 的 dense 布局在 plan 时即拒（不发出构建接不住的计划）。
+  - 已在真实素材验证：法硕研究生（简单）、橘猫打工人多道具大幅甩臂（困难）均 8 帧一致、尺寸稳、头不漂、中文文案干净。每块均经 codex（xhigh）审计。
+  - 参考文档：`skills/generate-meme-gif-pack/references/dense-frames.md`。
+  - 待续：完整 16/24 真实包压测、4x4 体积截断与循环闭合、本地无法校验逐格身份（生成期 reference 锚定负责）。视频生成→拆帧是未来更贵的可选高级档（成功商业化后再提醒拓展）。
 
 ## 开发入口
 

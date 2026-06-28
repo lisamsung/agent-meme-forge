@@ -50,6 +50,7 @@ Read only what the situation needs:
 - `references/wechat-platform-upload.md`: optional browser upload runbook.
 - `references/personas.md`, `styles.md`, `meme-library.md`: content planning.
 - `references/prompt-rules.md`: image prompt rules and keypose requirements.
+- `references/dense-frames.md`: dense real-frame mode (`--source-mode dense_frames`), the recommended smoothest path.
 - `references/pressure-scenarios.md`: common user input -> expected response.
 
 ## Output Contract

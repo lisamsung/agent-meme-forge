@@ -959,6 +959,27 @@ def sheet_prompt_rules(layout: str) -> str:
     )
 
 
+def dense_sheet_prompt_rules(layout: str) -> str:
+    rows, cols = parse_sheet_layout(layout)
+    cells = rows * cols
+    return (
+        f"Dense exposure-sheet rules: output ONE image that is exactly a {layout} grid of {cells} equal "
+        f"cells ({rows} row{'s' if rows != 1 else ''} x {cols} column{'s' if cols != 1 else ''}) filling the "
+        "whole image edge to edge with no outer margin, read left-to-right then top-to-bottom. "
+        f"The {cells} cells are CONSECUTIVE frames of ONE short looping animation - draw {cells} genuinely "
+        "different real frames, NOT the same pose copied. Use a smooth motion arc (neutral -> anticipation -> "
+        "peak -> settle) and make the last cell loop cleanly back to the first; neighboring cells differ only "
+        "slightly so the motion reads as continuous. Keep the SAME character identity, outfit, colors, line "
+        "weight, pixel scale, and centered body position in every cell; only the pose and expression change. "
+        f"CRITICAL: the result MUST be {cells} small copies of the character arranged in the {layout} grid - do "
+        "NOT output a single large portrait or one big scene. "
+        "No borders, no separator lines, no panel frames, no numbers, no mirroring. "
+        "Use a 100% solid flat #FF00FF magenta background (gpt-image-2 cannot export real alpha) for local "
+        "chroma-key removal; never use gradients, shadows, colored washes, textured backgrounds, or fake "
+        "checkerboard transparency behind the cells."
+    )
+
+
 def keypose_prompt_rules(layout: str, render_frame_count: int) -> str:
     rows, cols = parse_sheet_layout(layout)
     cells = rows * cols
@@ -1148,6 +1169,36 @@ def image_prompt_for_entry(
         )
         frame_count = render_frame_count
         raw_layout = source_layout
+    elif source_mode == "dense_frames":
+        raw_layout = animation_layout
+        rows, cols = parse_sheet_layout(animation_layout)
+        frame_plan = animation_frames_for_entry(entry, rows * cols)
+        frame_lines = "\n".join(
+            f"Frame {frame_index}: {description}" for frame_index, description in enumerate(frame_plan, start=1)
+        )
+        frame_count = len(frame_plan)
+        prompt = (
+            "Create one raw no-text DENSE exposure sheet for a Chinese WeChat animated meme GIF sticker pack. "
+            "Every cell is a genuinely different real animation frame; a local processor slices, size-registers, "
+            "head-anchors, times, and assembles them into the looping GIF.\n"
+            f"Character card: {character_card}\n"
+            f"Subject reminder: {subject.strip() or 'uploaded reference character'}.\n"
+            f"Visual style: {style_prompt(style)}.\n"
+            f"Persona context: {persona}; useful visual cues: {persona_prompt(persona)}.\n"
+            f"Meme item {index:02d}: {entry.name}. Chat send scenario: {entry.scene}. "
+            f"The final Chinese caption will be added later by a local processor as \"{caption}\"; do not draw any text.\n"
+            "Sendability gate: this must be a sticker people want to send, not just a nice illustration. "
+            f"Reuse trigger: {sendability_gate['reuse_trigger']}. Emotional value: {sendability_gate['emotional_value']}. "
+            f"Creative hook: {sendability_gate['creative_hook']}. If it is only cute or decorative, generic, or not useful as a chat reply, it fails.\n"
+            f"Acting direction: push it hard - exaggerated, readable, meme-worthy {entry.motion}; the emotion must land on its own before any caption is added.\n"
+            f"{dense_sheet_prompt_rules(animation_layout)}\n"
+            f"{motion_profile_prompt(motion_profile)}\n"
+            f"Frame-by-frame acting plan, one consecutive cell each, last cell loops back to frame 1:\n{frame_lines}\n"
+            f"Tone: {tone}; funny, slightly unhinged, but safe for public WeChat review.\n"
+            "Composition: one character only, centered in every cell, oversized readable face, crisp silhouette, "
+            "clear empty margin so nothing touches a cell edge, no clutter, no tiny joke-critical props, high contrast, designed to read at 240x240 per cell.\n"
+            f"Hard negative rules: {HARD_IMAGE_RULES}."
+        )
     else:
         raw_layout = animation_layout
         rows, cols = parse_sheet_layout(animation_layout)
@@ -1233,21 +1284,19 @@ def plan_pack(
 ) -> dict:
     validate_pack_size(pack_size, mode)
     source_mode = parse_source_mode(source_mode)
-    if source_mode == "dense_frames":
-        # plan-pack still emits motion_sheet-style image prompts; dense needs the exposure-sheet
-        # recipe in dense_frames.py, which is not wired into planning yet. Refuse rather than hand
-        # back the wrong raw material (the build/qc side of dense is ready and stays open).
-        raise ValueError(
-            "plan-pack does not yet emit dense_frames exposure-sheet prompts. Generate dense sheets "
-            "directly with dense_frames.py (canonical -> sheet), then run qc-sheet / build-pack "
-            "--source-mode dense_frames. (Wiring dense into plan-pack is the next chunk.)"
-        )
     image_provider = parse_image_provider(image_provider)
     if source_mode == "keyposes":
         source_layout = parse_keypose_layout(keypose_layout)
     else:
         parse_sheet_layout(animation_layout)
         source_layout = animation_layout
+    if source_mode == "dense_frames" and source_layout not in DENSE_FRAME_LAYOUTS:
+        # Fail fast: qc-sheet / build-pack reject non-{2x4,4x4} dense layouts at submission, so do
+        # not emit a plan (and build command) that promises a sheet the build cannot accept.
+        raise ValueError(
+            f"dense_frames supports layouts {sorted(DENSE_FRAME_LAYOUTS)} (2x4 is the sweet spot); "
+            f"got '{source_layout}'."
+        )
     parse_quality_mode(quality_mode)
     entries = default_entries(persona, pack_size)
     character_card = build_character_card(subject, style, reference_image)
@@ -1381,13 +1430,14 @@ def plan_pack(
         agent_instructions = [
             (
                 "Codex built-in image_gen is a terminal action. Use it only as the final action of the "
-                "current turn for the next required no-text keypose sheet; do not try to run "
-                "accept-generated or QC in the same turn after calling it."
+                "current turn for the next required no-text source sheet (keypose, dense exposure, or "
+                "motion sheet per source_mode); do not try to run accept-generated or QC in the same "
+                "turn after calling it."
             ),
             (
                 "Before calling image_gen, write/review the plan and identify the target image_prompts "
                 "index, raw_image_filename, and prompt. Do not describe the sticker pack as complete "
-                "after a raw keypose sheet is generated."
+                "after a single raw source sheet is generated."
             ),
             (
                 "When the user returns in the next turn with a saved/exported local image file, run "
@@ -1440,7 +1490,7 @@ def plan_pack(
             "allowed_pause_conditions": base_pause_conditions,
         }
         agent_instructions = [
-            "Use meme_pack.py generate-raw-batch with the plan JSON to generate planned raw keypose PNGs through the OpenAI Images API provider. Do not use Codex built-in image_gen for this automated provider path.",
+            "Use meme_pack.py generate-raw-batch with the plan JSON to generate the planned raw source sheets (keypose, dense exposure, or motion sheets per source_mode) through the OpenAI Images API provider. Do not use Codex built-in image_gen for this automated provider path.",
             "For a cautious first pass, generate and inspect the first 3 planned prompts before the full pack; for fully automated runs, keep regenerate-on-fail behavior and continue until all planned raw files exist.",
             f"Run meme_pack.py qc-sheet --source-mode {source_mode} --source-layout {source_layout} --quality-mode {quality_mode} on accepted sheets and regenerate any fail or weak warning using regenerate_hint.",
             f"{first_three_instruction} After QC passes, continue to the remaining prompts in the same workflow.",
@@ -1516,6 +1566,8 @@ def plan_pack(
             "quality_mode": quality_mode,
             "rules": keypose_prompt_rules(keypose_layout, render_frame_count)
             if source_mode == "keyposes"
+            else dense_sheet_prompt_rules(animation_layout)
+            if source_mode == "dense_frames"
             else sheet_prompt_rules(animation_layout),
         },
         "meme_quality_bar": MEME_QUALITY_BAR,
@@ -4036,13 +4088,13 @@ def run_plan_wizard(input_fn=input, print_fn=print) -> dict:
         print_fn=print_fn,
     )
     selected_layout = _prompt_choice(
-        "Step 8: choose source layout (2x2/1x4 keyposes, 2x4/4x4 legacy motion sheets)",
-        [DEFAULT_KEYPOSE_LAYOUT, "1x4", DEFAULT_ANIMATION_LAYOUT, "4x4", "1x8", "2x3"],
+        "Step 8: choose source layout (2x2/1x4 keyposes, 2x4/4x4 dense real-frame sheets [recommended for smoothness])",
+        [DEFAULT_KEYPOSE_LAYOUT, "1x4", DEFAULT_ANIMATION_LAYOUT, "4x4"],
         default_index=0,
         input_fn=input_fn,
         print_fn=print_fn,
     )
-    source_mode = "keyposes" if selected_layout in KEYPOSE_LAYOUTS else "motion_sheet"
+    source_mode = "keyposes" if selected_layout in KEYPOSE_LAYOUTS else "dense_frames"
     keypose_layout = selected_layout if source_mode == "keyposes" else DEFAULT_KEYPOSE_LAYOUT
     animation_layout = DEFAULT_ANIMATION_LAYOUT if source_mode == "keyposes" else selected_layout
 
@@ -4066,7 +4118,7 @@ def run_plan_wizard(input_fn=input, print_fn=print) -> dict:
     )
     write_plan(output, plan)
     print_fn(f"Plan written: {output}")
-    print_fn("Next: 先生成前 3 张作为质量闸门；对内置 image_gen，先把下一张 keypose prompt 作为本轮最终动作生成；下一轮保存/导出本地文件后再运行 accept-generated、qc-sheet 和 preview/build。")
+    print_fn("Next: 先生成前 3 张作为质量闸门；对内置 image_gen，先把下一张 source sheet prompt（按 source_mode：keypose / dense 曝光表 / motion sheet）作为本轮最终动作生成；下一轮保存/导出本地文件后再运行 accept-generated、qc-sheet 和 preview/build。")
     print_fn(plan["image_handoff"]["accept_generated_command"])
     print_fn(plan["processor_command"])
     return plan
@@ -4112,7 +4164,7 @@ def main(argv: list[str] | None = None) -> int:
         help="Raw frame directory. Defaults to raw_output_dir from the plan JSON.",
     )
 
-    batch_parser = sub.add_parser("generate-raw-batch", help="Generate planned raw keypose PNGs with a scriptable image provider.")
+    batch_parser = sub.add_parser("generate-raw-batch", help="Generate planned raw source sheets (keypose/dense/motion) with a scriptable image provider.")
     batch_parser.add_argument("--plan", required=True, type=Path, help="Plan JSON written by plan-pack or plan-wizard.")
     batch_parser.add_argument("--provider", default=IMAGE_PROVIDER_OPENAI_IMAGES_API, choices=[IMAGE_PROVIDER_OPENAI_IMAGES_API])
     batch_parser.add_argument("--imagegen-cli", type=Path, help="Path to the system imagegen scripts/image_gen.py CLI.")
