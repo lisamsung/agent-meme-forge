@@ -21,6 +21,31 @@ def load_module():
     return module
 
 
+def load_dense_frames():
+    spec = importlib.util.spec_from_file_location(
+        "dense_frames", ROOT / "skills" / "generate-meme-gif-pack" / "scripts" / "dense_frames.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_dense_frames_exposure_sheet_prompt_encodes_the_learnings():
+    dense_frames = load_dense_frames()
+    prompt = dense_frames.build_exposure_sheet_prompt(
+        "a knowing nod, pretending to understand", traits="same glasses, same cap", rows=2, cols=4
+    )
+    assert "2-row by 4-column" in prompt
+    assert "8 EQUAL-sized cells" in prompt
+    assert "filling the whole image edge to edge" in prompt  # clean even-division slicing
+    # the hard-won rule: a full-frame reference makes the model redraw ONE portrait unless told not to
+    assert "Do NOT output a single large portrait" in prompt
+    assert "#FF00FF" in prompt
+    assert "a knowing nod, pretending to understand" in prompt
+    assert "same glasses, same cap" in prompt  # traits restated for identity hold
+
+
 def make_source_frames(tmp_path: Path, count: int = 24) -> Path:
     source = tmp_path / "source"
     source.mkdir()
