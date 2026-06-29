@@ -7,3 +7,9 @@ raw-frames/
 dist/
 build/
 .DS_Store
+# Local AI-tooling pointers (PROJECT_STATUS.md is the tracked source of truth) and tool caches
+/CLAUDE.md
+/AGENTS.md
+.playwright-cli/
+# Local-only project explainer (kept out of the published docs by request)
+/docs/项目工作原理.html
