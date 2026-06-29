@@ -512,6 +512,8 @@ def test_plan_pack_emits_dense_exposure_sheet_prompts():
     assert "2x4 grid of 8 equal cells" in prompt
     assert "do NOT output a single large portrait" in prompt  # anti-single-portrait rule
     assert "loop cleanly back to the first" in prompt  # engineered loop
+    assert "NEVER draw one in a single cell only" in prompt  # anti one-frame effect flash
+    assert "ONE continuous seamless background" in prompt  # anti separator-line residue
     assert "#FF00FF" in prompt
     assert "do not draw any text" in prompt  # caption is added locally
     # the expressive per-frame acting plan is embedded, one cell per frame

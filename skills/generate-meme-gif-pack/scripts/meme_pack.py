@@ -973,12 +973,16 @@ def dense_sheet_prompt_rules(layout: str) -> str:
         "peak -> settle) and make the last cell loop cleanly back to the first; neighboring cells differ only "
         "slightly so the motion reads as continuous. Keep the SAME character identity, outfit, colors, line "
         "weight, pixel scale, and centered body position in every cell; only the pose and expression change. "
+        "The character holds the SAME props (e.g. cap, glasses, item) in the SAME way in every cell. Any "
+        "emotion accent or effect (a sweat drop, sparkle, blush, motion line, or mark) must appear consistently "
+        "across at least 2-3 neighboring cells - NEVER draw one in a single cell only, as it flickers when "
+        "animated; prefer conveying emotion through the face and pose. "
         f"CRITICAL: the result MUST be {cells} small copies of the character arranged in the {layout} grid - do "
         "NOT output a single large portrait or one big scene. "
-        "No borders, no separator lines, no panel frames, no numbers, no mirroring. "
-        "Use a 100% solid flat #FF00FF magenta background (gpt-image-2 cannot export real alpha) for local "
-        "chroma-key removal; never use gradients, shadows, colored washes, textured backgrounds, or fake "
-        "checkerboard transparency behind the cells."
+        "No borders, no separator lines, no panel frames, no gutters, no numbers, no mirroring - the cells sit "
+        "directly on ONE continuous seamless background. Use a 100% solid flat #FF00FF magenta background "
+        "(gpt-image-2 cannot export real alpha) for local chroma-key removal; never use gradients, shadows, "
+        "colored washes, textured backgrounds, or any fake checkerboard transparency anywhere on the sheet."
     )
 
 
