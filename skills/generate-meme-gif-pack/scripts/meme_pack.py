@@ -11,11 +11,11 @@ import shlex
 import shutil
 import subprocess
 import sys
-from collections import deque
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Iterable
 
+import numpy as np
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont, ImageSequence
 
 
@@ -475,36 +475,79 @@ def pixel_data(image: Image.Image):
     return image.get_flattened_data() if hasattr(image, "get_flattened_data") else image.getdata()
 
 
+# --- Entry classification -------------------------------------------------
+# Several planning fields are derived by scanning an entry's text for keyword
+# groups. Keeping the keyword tables together (instead of inline in each
+# function) makes them auditable side by side and keeps related groups from
+# drifting apart. Each table is an ordered tuple of (keywords, result); the
+# first group that matches wins, mirroring the original if/elif chains.
+
+
+def _entry_text(entry: MemeEntry) -> str:
+    return f"{entry.name} {entry.text} {entry.scene} {entry.motion}".lower()
+
+
+def _classify(text: str, rules: tuple, default):
+    for keywords, result in rules:
+        if any(keyword in text for keyword in keywords):
+            return result
+    return default
+
+
+MOTION_PROFILE_RULES = (
+    (("blink", "nod", "understand", "blank", "loading"), "micro"),
+    (
+        (
+            "recoil", "jump", "hit", "swoop", "shake", "tremble", "panic",
+            "paper", "scroll", "document", "literature", "typing", "terminal",
+            "compile", "keyboard", "summon", "glow", "sparkle", "ritual",
+        ),
+        "action",
+    ),
+)
+
+MOTION_TEMPLATE_RULES = (
+    (("收到离线", "灵魂", "offline", "ghost", "fade", "sleep"), "soul_offline"),
+    (("加载", "loading", "progress", "进度条"), "loading_loop"),
+    (("装懂", "懂", "understand", "nod", "blink"), "pretend_understand"),
+    (("写", "typing", "keyboard", "terminal", "compile", "编译"), "typing_panic"),
+    (("假笑", "礼貌", "笑不出来", "smile"), "fake_smile"),
+    (("离谱", "合理", "recoil", "jump", "hit", "swoop"), "absurd_recoil"),
+    (("文献", "论文", "paper", "scroll", "document", "literature"), "paper_overflow"),
+)
+
+VISUAL_GAG_RULES = (
+    (("paper", "scroll", "document", "literature"), "papers multiply around the character until the reaction reads before the caption appears"),
+    (("typing", "terminal", "compile", "keyboard"), "tiny frantic keyboard or screen glow drives the joke without any visible text"),
+    (("shake", "tremble", "wobble", "panic"), "small stress tremble escalates into a clear peak pose, then loops back"),
+    (("droop", "flatline", "data", "chart"), "a simple chart or prop physically deflates while the character tries to stay calm"),
+    (("summon", "glow", "sparkle", "ritual"), "a tight halo or glow appears close to the character and never crosses the cell edge"),
+    (("fade", "sleep", "ghost"), "the character visibly powers down or mentally exits, then returns to loop"),
+)
+
+EMOTIONAL_VALUE_RULES = (
+    (("收到", "加载", "已读", "懂"), "low-pressure reply that buys time without sounding cold"),
+    (("离谱", "合理", "问题", "崩", "翻车", "bug"), "shared disbelief and comic relief when things go wrong"),
+    (("写", "ddl", "加班", "交", "进度", "返修"), "deadline survival humor that says I am trying but suffering"),
+    (("咖啡", "早八", "睡", "灵魂", "退场"), "energy-depleted self-mockery that is easy to send repeatedly"),
+)
+
+# animation_frames_for_entry scans only entry.motion; note "paper pile" (not bare
+# "paper") and the extra nod/recoil categories distinguish it from VISUAL_GAG_RULES.
+FRAME_PLAN_RULES = (
+    (("paper pile", "scroll", "document", "literature"), "paper"),
+    (("typing", "terminal", "compile", "keyboard"), "keyboard"),
+    (("shake", "tremble", "wobble", "panic"), "shake"),
+    (("nod", "understand", "blink"), "nod"),
+    (("recoil", "jump", "hit", "swoop"), "recoil"),
+    (("droop", "flatline", "data", "chart"), "chart"),
+    (("summon", "glow", "sparkle", "ritual"), "glow"),
+    (("fade", "sleep", "ghost"), "fade"),
+)
+
+
 def motion_profile_for_motion(motion: str) -> str:
-    normalized = motion.lower()
-    if any(token in normalized for token in ["blink", "nod", "understand", "blank", "loading"]):
-        return "micro"
-    if any(
-        token in normalized
-        for token in [
-            "recoil",
-            "jump",
-            "hit",
-            "swoop",
-            "shake",
-            "tremble",
-            "panic",
-            "paper",
-            "scroll",
-            "document",
-            "literature",
-            "typing",
-            "terminal",
-            "compile",
-            "keyboard",
-            "summon",
-            "glow",
-            "sparkle",
-            "ritual",
-        ]
-    ):
-        return "action"
-    return "standard"
+    return _classify(motion.lower(), MOTION_PROFILE_RULES, "standard")
 
 
 def alignment_mode_for_profile(motion_profile: str) -> str:
@@ -512,22 +555,7 @@ def alignment_mode_for_profile(motion_profile: str) -> str:
 
 
 def motion_template_for_entry(entry: MemeEntry) -> str:
-    text = f"{entry.name} {entry.text} {entry.scene} {entry.motion}".lower()
-    if any(token in text for token in ["收到离线", "灵魂", "offline", "ghost", "fade", "sleep"]):
-        return "soul_offline"
-    if any(token in text for token in ["加载", "loading", "progress", "进度条"]):
-        return "loading_loop"
-    if any(token in text for token in ["装懂", "懂", "understand", "nod", "blink"]):
-        return "pretend_understand"
-    if any(token in text for token in ["写", "typing", "keyboard", "terminal", "compile", "编译"]):
-        return "typing_panic"
-    if any(token in text for token in ["假笑", "礼貌", "笑不出来", "smile"]):
-        return "fake_smile"
-    if any(token in text for token in ["离谱", "合理", "recoil", "jump", "hit", "swoop"]):
-        return "absurd_recoil"
-    if any(token in text for token in ["文献", "论文", "paper", "scroll", "document", "literature"]):
-        return "paper_overflow"
-    return "steady_breath"
+    return _classify(_entry_text(entry), MOTION_TEMPLATE_RULES, "steady_breath")
 
 
 def keypose_beats_for_template(template_id: str, entry: MemeEntry) -> list[str]:
@@ -809,9 +837,9 @@ def motion_template_plan_for_entry(entry: MemeEntry, frame_count: int = DEFAULT_
 
 
 def animation_frames_for_entry(entry: MemeEntry, frame_count: int = 4) -> list[str]:
-    motion = entry.motion.lower()
     name = entry.name
-    if any(token in motion for token in ["paper pile", "scroll", "document", "literature"]):
+    category = _classify(entry.motion.lower(), FRAME_PLAN_RULES, "default")
+    if category == "paper":
         frames = [
             f"{name}: character notices one small paper stack, worried eyes",
             f"{name}: character reaches toward the paper stack with hesitation",
@@ -822,7 +850,7 @@ def animation_frames_for_entry(entry: MemeEntry, frame_count: int = 4) -> list[s
             f"{name}: character pops back up exhausted, loopable return pose",
             f"{name}: character settles with a tiny defeated sigh, ready to loop",
         ]
-    elif any(token in motion for token in ["typing", "terminal", "compile", "keyboard"]):
+    elif category == "keyboard":
         frames = [
             f"{name}: character freezes at the keyboard before starting",
             f"{name}: character leans in with nervous focus",
@@ -833,7 +861,7 @@ def animation_frames_for_entry(entry: MemeEntry, frame_count: int = 4) -> list[s
             f"{name}: tiny exhausted pause, still loopable back to frame 1",
             f"{name}: character resets hands on keyboard for loop",
         ]
-    elif any(token in motion for token in ["shake", "tremble", "wobble", "panic"]):
+    elif category == "shake":
         frames = [
             f"{name}: character holds a tense neutral pose",
             f"{name}: character shakes slightly to the left",
@@ -844,7 +872,7 @@ def animation_frames_for_entry(entry: MemeEntry, frame_count: int = 4) -> list[s
             f"{name}: character breathes once but is still worried",
             f"{name}: character returns to tense neutral pose",
         ]
-    elif any(token in motion for token in ["nod", "understand", "blink"]):
+    elif category == "nod":
         frames = [
             f"{name}: character starts with a polite alive-looking pose, eyes open",
             f"{name}: eyelids droop clearly, shoulders sink slightly, same silhouette and hand pose",
@@ -855,7 +883,7 @@ def animation_frames_for_entry(entry: MemeEntry, frame_count: int = 4) -> list[s
             f"{name}: character returns to blank stare, eyes open wider like the soul rebooted",
             f"{name}: same as frame 1, loopable return pose with stable center",
         ]
-    elif any(token in motion for token in ["recoil", "jump", "hit", "swoop"]):
+    elif category == "recoil":
         frames = [
             f"{name}: character sees the problem approaching",
             f"{name}: character begins to lean back",
@@ -866,7 +894,7 @@ def animation_frames_for_entry(entry: MemeEntry, frame_count: int = 4) -> list[s
             f"{name}: character settles back while still shocked",
             f"{name}: character holds a loopable stunned pose",
         ]
-    elif any(token in motion for token in ["droop", "flatline", "data", "chart"]):
+    elif category == "chart":
         frames = [
             f"{name}: character holds a chart hopefully",
             f"{name}: character points at the chart with cautious optimism",
@@ -877,7 +905,7 @@ def animation_frames_for_entry(entry: MemeEntry, frame_count: int = 4) -> list[s
             f"{name}: character stares at the result in silence",
             f"{name}: character returns to holding the sad chart, loopable",
         ]
-    elif any(token in motion for token in ["summon", "glow", "sparkle", "ritual"]):
+    elif category == "glow":
         frames = [
             f"{name}: small glow appears near the character",
             f"{name}: character notices the glow",
@@ -888,7 +916,7 @@ def animation_frames_for_entry(entry: MemeEntry, frame_count: int = 4) -> list[s
             f"{name}: glow fades while character remains stressed",
             f"{name}: character settles into a loopable worried pose",
         ]
-    elif any(token in motion for token in ["fade", "sleep", "ghost"]):
+    elif category == "fade":
         frames = [
             f"{name}: character sits normally but tired",
             f"{name}: character eyelids droop",
@@ -1006,20 +1034,11 @@ def keypose_prompt_rules(layout: str, render_frame_count: int) -> str:
 
 
 def visual_gag_for_entry(entry: MemeEntry) -> str:
-    motion = entry.motion.lower()
-    if any(token in motion for token in ["paper", "scroll", "document", "literature"]):
-        return "papers multiply around the character until the reaction reads before the caption appears"
-    if any(token in motion for token in ["typing", "terminal", "compile", "keyboard"]):
-        return "tiny frantic keyboard or screen glow drives the joke without any visible text"
-    if any(token in motion for token in ["shake", "tremble", "wobble", "panic"]):
-        return "small stress tremble escalates into a clear peak pose, then loops back"
-    if any(token in motion for token in ["droop", "flatline", "data", "chart"]):
-        return "a simple chart or prop physically deflates while the character tries to stay calm"
-    if any(token in motion for token in ["summon", "glow", "sparkle", "ritual"]):
-        return "a tight halo or glow appears close to the character and never crosses the cell edge"
-    if any(token in motion for token in ["fade", "sleep", "ghost"]):
-        return "the character visibly powers down or mentally exits, then returns to loop"
-    return "the face and body language carry the joke clearly at 240x240 before the caption is added"
+    return _classify(
+        entry.motion.lower(),
+        VISUAL_GAG_RULES,
+        "the face and body language carry the joke clearly at 240x240 before the caption is added",
+    )
 
 
 MEME_QUALITY_BAR = {
@@ -1040,16 +1059,11 @@ MEME_QUALITY_BAR = {
 
 
 def emotional_value_for_entry(entry: MemeEntry) -> str:
-    text = f"{entry.name} {entry.text} {entry.scene} {entry.motion}".lower()
-    if any(token in text for token in ["收到", "加载", "已读", "懂"]):
-        return "low-pressure reply that buys time without sounding cold"
-    if any(token in text for token in ["离谱", "合理", "问题", "崩", "翻车", "bug"]):
-        return "shared disbelief and comic relief when things go wrong"
-    if any(token in text for token in ["写", "ddl", "加班", "交", "进度", "返修"]):
-        return "deadline survival humor that says I am trying but suffering"
-    if any(token in text for token in ["咖啡", "早八", "睡", "灵魂", "退场"]):
-        return "energy-depleted self-mockery that is easy to send repeatedly"
-    return "quick emotional shorthand that makes the chat reply more playful"
+    return _classify(
+        _entry_text(entry),
+        EMOTIONAL_VALUE_RULES,
+        "quick emotional shorthand that makes the chat reply more playful",
+    )
 
 
 def sendability_gate_for_entry(entry: MemeEntry) -> dict[str, str]:
@@ -1237,11 +1251,8 @@ def image_prompt_for_entry(
     return {
         "index": index,
         "name": entry.name,
-        "meme_name": entry.name,
         "caption": entry.text,
-        "send_scene": entry.scene,
         "scene": entry.scene,
-        "motion_type": entry.motion,
         "motion": entry.motion,
         "motion_profile": motion_profile,
         "source_mode": source_mode,
@@ -1254,10 +1265,7 @@ def image_prompt_for_entry(
         "local_effects": template_plan["local_effects"],
         "qc_policy": template_plan["qc_policy"],
         "continuity_acceptance": template_plan["continuity_acceptance"],
-        "frames": frame_plan,
         "frame_beats": frame_plan,
-        "8_frame_beats": frame_plan if frame_count == 8 else frame_plan[:8],
-        f"{frame_count}_frame_beats": frame_plan,
         "visual_gag": visual_gag_for_entry(entry),
         "sendability_gate": sendability_gate,
         "negative_prompt": HARD_IMAGE_RULES,
@@ -1818,29 +1826,37 @@ def split_sheet_frames(image: Image.Image, layout: str) -> list[Image.Image]:
 
 def remove_chroma_background(image: Image.Image, color: tuple[int, int, int] = (255, 0, 255), tolerance: int = 18) -> Image.Image:
     rgba = image.convert("RGBA")
-    pixels = []
-    source_pixels = pixel_data(rgba)
+    arr = np.asarray(rgba).astype(np.int32)
+    red = arr[..., 0]
+    green = arr[..., 1]
+    blue = arr[..., 2]
+    alpha = arr[..., 3]
     target_red, target_green, target_blue = color
-    for red, green, blue, alpha in source_pixels:
-        exact_match = (
-            abs(red - target_red) <= tolerance
-            and abs(green - target_green) <= tolerance
-            and abs(blue - target_blue) <= tolerance
-        )
-        generated_magenta = red >= 210 and blue >= 190 and green <= 90 and abs(red - blue) <= 90
-        if alpha and (exact_match or generated_magenta):
-            pixels.append((red, green, blue, 0))
-        else:
-            spill_delta = min(red, blue) - green
-            if alpha and red >= 145 and blue >= 120 and green <= 145 and spill_delta >= 28:
-                spill_strength = min(1.0, spill_delta / 150)
-                alpha = int(alpha * max(0.08, 1.0 - 1.18 * spill_strength))
-                neutral = max(0, min(255, int(green * 1.08)))
-                red = int(red * (1.0 - 0.58 * spill_strength) + neutral * (0.30 * spill_strength))
-                blue = int(blue * (1.0 - 0.66 * spill_strength) + neutral * (0.38 * spill_strength))
-            pixels.append((red, green, blue, alpha))
-    rgba.putdata(pixels)
-    return rgba
+
+    exact_match = (
+        (np.abs(red - target_red) <= tolerance)
+        & (np.abs(green - target_green) <= tolerance)
+        & (np.abs(blue - target_blue) <= tolerance)
+    )
+    generated_magenta = (red >= 210) & (blue >= 190) & (green <= 90) & (np.abs(red - blue) <= 90)
+    has_alpha = alpha > 0
+    keyed = has_alpha & (exact_match | generated_magenta)
+
+    spill_delta = np.minimum(red, blue) - green
+    spill_mask = (~keyed) & has_alpha & (red >= 145) & (blue >= 120) & (green <= 145) & (spill_delta >= 28)
+    spill_strength = np.minimum(1.0, spill_delta / 150.0)
+    neutral = np.clip(np.trunc(green * 1.08), 0, 255)
+    spill_red = np.trunc(red * (1.0 - 0.58 * spill_strength) + neutral * (0.30 * spill_strength))
+    spill_blue = np.trunc(blue * (1.0 - 0.66 * spill_strength) + neutral * (0.38 * spill_strength))
+    spill_alpha = np.trunc(alpha * np.maximum(0.08, 1.0 - 1.18 * spill_strength))
+
+    out_red = np.where(spill_mask, spill_red, red)
+    out_blue = np.where(spill_mask, spill_blue, blue)
+    out_alpha = np.where(spill_mask, spill_alpha, alpha)
+    out_alpha = np.where(keyed, 0, out_alpha)
+
+    result = np.stack([out_red, green, out_blue, out_alpha], axis=-1).astype(np.uint8)
+    return Image.fromarray(result, "RGBA")
 
 
 def soften_alpha_edges(image: Image.Image) -> Image.Image:
@@ -1862,43 +1878,31 @@ def _magenta_distance(red: int, green: int, blue: int) -> float:
 
 def detect_checkerboard_background(image: Image.Image) -> bool:
     sample = image.convert("RGBA").resize((48, 48), Image.Resampling.NEAREST)
-    labels: list[int] = []
-    light = 0
-    dark = 0
-    gray_total = 0
-    for red, green, blue, alpha in pixel_data(sample):
-        if alpha < 240 or max(red, green, blue) - min(red, green, blue) > 8:
-            labels.append(-1)
-            continue
-        if 232 <= red <= 246:
-            light += 1
-            gray_total += 1
-            labels.append(1)
-        elif 195 <= red <= 215:
-            dark += 1
-            gray_total += 1
-            labels.append(0)
-        else:
-            labels.append(-1)
+    arr = np.asarray(sample).astype(np.int32)
+    red = arr[..., 0]
+    alpha = arr[..., 3]
+    spread = arr[..., :3].max(axis=2) - arr[..., :3].min(axis=2)
+    invalid = (alpha < 240) | (spread > 8)
+    light_mask = (~invalid) & (red >= 232) & (red <= 246)
+    dark_mask = (~invalid) & (red >= 195) & (red <= 215)
+    labels = np.full(arr.shape[:2], -1, dtype=np.int32)
+    labels[light_mask] = 1
+    labels[dark_mask] = 0
+
+    light = int(light_mask.sum())
+    dark = int(dark_mask.sum())
+    gray_total = light + dark
     total = sample.width * sample.height
     if gray_total / total < 0.22 or min(light, dark) / total < 0.04:
         return False
-    transitions = 0
-    comparable = 0
-    for y in range(sample.height):
-        for x in range(sample.width - 1):
-            left = labels[y * sample.width + x]
-            right = labels[y * sample.width + x + 1]
-            if left >= 0 and right >= 0:
-                comparable += 1
-                transitions += int(left != right)
-    for y in range(sample.height - 1):
-        for x in range(sample.width):
-            top = labels[y * sample.width + x]
-            bottom = labels[(y + 1) * sample.width + x]
-            if top >= 0 and bottom >= 0:
-                comparable += 1
-                transitions += int(top != bottom)
+
+    horizontal_valid = (labels[:, :-1] >= 0) & (labels[:, 1:] >= 0)
+    vertical_valid = (labels[:-1, :] >= 0) & (labels[1:, :] >= 0)
+    comparable = int(horizontal_valid.sum() + vertical_valid.sum())
+    transitions = int(
+        ((labels[:, :-1] != labels[:, 1:]) & horizontal_valid).sum()
+        + ((labels[:-1, :] != labels[1:, :]) & vertical_valid).sum()
+    )
     return comparable > 0 and transitions / comparable > 0.10
 
 
@@ -1907,14 +1911,20 @@ def detect_background_mode(image: Image.Image) -> str:
     if detect_checkerboard_background(rgba):
         return "checkerboard"
     total = max(1, rgba.width * rgba.height)
-    transparent = magenta = solid_light = 0
-    for red, green, blue, alpha in pixel_data(rgba):
-        if alpha < 16:
-            transparent += 1
-        elif _magenta_distance(red, green, blue) < 48 or (red >= 210 and blue >= 190 and green <= 90):
-            magenta += 1
-        elif red >= 248 and green >= 248 and blue >= 248:
-            solid_light += 1
+    arr = np.asarray(rgba).astype(np.float64)
+    red = arr[..., 0]
+    green = arr[..., 1]
+    blue = arr[..., 2]
+    alpha = arr[..., 3]
+    magenta_distance = np.sqrt((red - 255) ** 2 + green ** 2 + (blue - 255) ** 2)
+    transparent_mask = alpha < 16
+    magenta_mask = (~transparent_mask) & (
+        (magenta_distance < 48) | ((red >= 210) & (blue >= 190) & (green <= 90))
+    )
+    solid_light_mask = (~transparent_mask) & (~magenta_mask) & (red >= 248) & (green >= 248) & (blue >= 248)
+    transparent = int(transparent_mask.sum())
+    magenta = int(magenta_mask.sum())
+    solid_light = int(solid_light_mask.sum())
     if transparent / total > 0.08:
         return "transparent"
     if magenta / total > 0.20:
@@ -1924,46 +1934,75 @@ def detect_background_mode(image: Image.Image) -> str:
     return "unknown"
 
 
-def connected_components(image: Image.Image, min_area: int = 1) -> list[dict[str, object]]:
-    alpha = image.convert("RGBA").getchannel("A")
-    pixels = alpha.load()
-    width, height = image.size
-    visited = [[False] * width for _ in range(height)]
-    components: list[dict[str, object]] = []
+def _label_connected(mask: np.ndarray) -> np.ndarray:
+    """Label 4-connected True regions with a vectorised Shiloach-Vishkin
+    union-find. Each region's label is the smallest flat index it contains, so
+    ascending label order matches a raster-scan discovery order. Background
+    pixels are labelled -1."""
+    height, width = mask.shape
+    flat_index = np.arange(height * width, dtype=np.int64).reshape(height, width)
+    parent = np.arange(height * width, dtype=np.int64)
 
-    for y in range(height):
-        for x in range(width):
-            if visited[y][x] or pixels[x, y] == 0:
-                continue
-            queue: deque[tuple[int, int]] = deque([(x, y)])
-            visited[y][x] = True
-            coords: list[tuple[int, int]] = []
-            min_x = max_x = x
-            min_y = max_y = y
-            touches_edge = False
-            while queue:
-                cx, cy = queue.popleft()
-                coords.append((cx, cy))
-                min_x = min(min_x, cx)
-                min_y = min(min_y, cy)
-                max_x = max(max_x, cx)
-                max_y = max(max_y, cy)
-                if cx == 0 or cy == 0 or cx == width - 1 or cy == height - 1:
-                    touches_edge = True
-                for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-                    nx, ny = cx + dx, cy + dy
-                    if 0 <= nx < width and 0 <= ny < height and not visited[ny][nx] and pixels[nx, ny] > 0:
-                        visited[ny][nx] = True
-                        queue.append((nx, ny))
-            if len(coords) >= min_area:
-                components.append(
-                    {
-                        "area": len(coords),
-                        "bbox": (min_x, min_y, max_x + 1, max_y + 1),
-                        "touches_edge": touches_edge,
-                        "pixels": coords,
-                    }
-                )
+    # Neighbour edges (right and down) where both endpoints are foreground.
+    horizontal = mask[:, :-1] & mask[:, 1:]
+    vertical = mask[:-1, :] & mask[1:, :]
+    edge_a = np.concatenate([flat_index[:, :-1][horizontal], flat_index[:-1, :][vertical]])
+    edge_b = np.concatenate([flat_index[:, 1:][horizontal], flat_index[1:, :][vertical]])
+
+    while True:
+        root_a = parent[edge_a]
+        root_b = parent[edge_b]
+        updated = parent.copy()
+        # Hook the higher root onto the lower one.
+        np.minimum.at(updated, np.maximum(root_a, root_b), np.minimum(root_a, root_b))
+        # Full path compression via pointer jumping.
+        while True:
+            jumped = updated[updated]
+            if np.array_equal(jumped, updated):
+                break
+            updated = jumped
+        if np.array_equal(updated, parent):
+            break
+        parent = updated
+
+    return np.where(mask.ravel(), parent, -1).reshape(height, width)
+
+
+def connected_components(image: Image.Image, min_area: int = 1) -> list[dict[str, object]]:
+    alpha = np.asarray(image.convert("RGBA").getchannel("A"))
+    height, width = alpha.shape
+    mask = alpha > 0
+    if not mask.any():
+        return []
+
+    labels = _label_connected(mask)
+    ys, xs = np.nonzero(mask)
+    point_labels = labels[ys, xs]
+    order = np.argsort(point_labels, kind="stable")
+    ys = ys[order]
+    xs = xs[order]
+    point_labels = point_labels[order]
+    # Group boundaries between distinct (ascending) labels.
+    splits = np.flatnonzero(np.diff(point_labels)) + 1
+
+    components: list[dict[str, object]] = []
+    for group_xs, group_ys in zip(np.split(xs, splits), np.split(ys, splits)):
+        area = int(group_xs.size)
+        if area < min_area:
+            continue
+        min_x = int(group_xs.min())
+        max_x = int(group_xs.max())
+        min_y = int(group_ys.min())
+        max_y = int(group_ys.max())
+        touches_edge = bool(min_x == 0 or min_y == 0 or max_x == width - 1 or max_y == height - 1)
+        components.append(
+            {
+                "area": area,
+                "bbox": (min_x, min_y, max_x + 1, max_y + 1),
+                "touches_edge": touches_edge,
+                "pixels": list(zip(group_xs.tolist(), group_ys.tolist())),
+            }
+        )
     components.sort(key=lambda item: int(item["area"]), reverse=True)
     return components
 
@@ -1990,19 +2029,18 @@ def _component_artifact_reason(rgba: Image.Image, component: dict[str, object]) 
     if width <= max(3, int(rgba.width * 0.018)) and height >= max(36, int(rgba.height * 0.28)):
         return "separator_line"
 
-    pixels = rgba.load()
-    neutral_grid_pixels = 0
-    for x, y in component["pixels"]:
-        red, green, blue, alpha = pixels[x, y]
-        if alpha == 0:
-            continue
-        spread = max(red, green, blue) - min(red, green, blue)
-        is_checker_gray = spread <= 14 and (
-            (196 <= red <= 216 and 196 <= green <= 216 and 196 <= blue <= 216)
-            or (230 <= red <= 247 and 230 <= green <= 247 and 230 <= blue <= 247)
-        )
-        if is_checker_gray:
-            neutral_grid_pixels += 1
+    coords = np.asarray(component["pixels"], dtype=np.int64)
+    arr = np.asarray(rgba).astype(np.int32)
+    sample = arr[coords[:, 1], coords[:, 0]]
+    red = sample[:, 0]
+    green = sample[:, 1]
+    blue = sample[:, 2]
+    alpha = sample[:, 3]
+    spread = sample[:, :3].max(axis=1) - sample[:, :3].min(axis=1)
+    light_gray = (red >= 196) & (red <= 216) & (green >= 196) & (green <= 216) & (blue >= 196) & (blue <= 216)
+    bright_gray = (red >= 230) & (red <= 247) & (green >= 230) & (green <= 247) & (blue >= 230) & (blue <= 247)
+    is_checker_gray = (alpha != 0) & (spread <= 14) & (light_gray | bright_gray)
+    neutral_grid_pixels = int(is_checker_gray.sum())
 
     small_component_limit = max(480, int(rgba.width * rgba.height * 0.012))
     if area <= small_component_limit and neutral_grid_pixels / area >= 0.72:
@@ -2043,12 +2081,11 @@ def filter_subject_components(
         for component in kept
         if component is largest or _bbox_distance(largest_bbox, tuple(component["bbox"])) <= keep_distance
     ]
-    keep_pixels = {coord for component in keep_components for coord in component["pixels"]}
-    output = Image.new("RGBA", rgba.size, (0, 0, 0, 0))
-    source = rgba.load()
-    target = output.load()
-    for x, y in keep_pixels:
-        target[x, y] = source[x, y]
+    coords = np.concatenate([np.asarray(component["pixels"], dtype=np.int64) for component in keep_components])
+    source = np.asarray(rgba)
+    out_arr = np.zeros((rgba.height, rgba.width, 4), dtype=np.uint8)
+    out_arr[coords[:, 1], coords[:, 0]] = source[coords[:, 1], coords[:, 0]]
+    output = Image.fromarray(out_arr, "RGBA")
     return output, {
         "component_count": len(components),
         "kept_component_count": len(keep_components),
@@ -2128,7 +2165,7 @@ def analyze_frames_for_qc(
         filtered, component_info = filter_subject_components(cleaned)
         bbox = filtered.getbbox()
         cell_area = max(1, filtered.width * filtered.height)
-        alpha_pixels = sum(1 for pixel in pixel_data(filtered.getchannel("A")) if pixel > 0)
+        alpha_pixels = int((np.asarray(filtered.getchannel("A")) > 0).sum())
         area_ratio = alpha_pixels / cell_area
         touches_edge = bbox_touches_edge(bbox, filtered.width, filtered.height, margin=1)
         edge_touch = edge_touch or touches_edge
@@ -2671,7 +2708,7 @@ def _alpha_bbox_area_center(frame: Image.Image) -> tuple[tuple[int, int, int, in
     else:
         alpha = cleaned.convert("RGBA").getchannel("A")
         bbox = alpha.point(lambda value: 255 if value > 24 else 0).getbbox()
-        area = sum(1 for value in pixel_data(alpha) if value > 24)
+        area = int((np.asarray(alpha) > 24).sum())
     center = None
     if bbox:
         center = ((bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2)
@@ -2702,12 +2739,11 @@ def _head_proxy_for_frame(
 
 
 def _mask_difference(left: Image.Image, right: Image.Image) -> float:
-    total = 0.0
-    count = 0
-    for left_value, right_value in zip(pixel_data(left), pixel_data(right)):
-        total += abs(int(left_value) - int(right_value)) / 255
-        count += 1
-    return total / max(1, count)
+    left_arr = np.asarray(left).astype(np.int32)
+    right_arr = np.asarray(right).astype(np.int32)
+    if left_arr.size == 0:
+        return 0.0
+    return float((np.abs(left_arr - right_arr) / 255).mean())
 
 
 def _head_shape_report(
@@ -2750,26 +2786,24 @@ def _head_shape_report(
 
 
 def _visible_frame_delta(left: Image.Image, right: Image.Image, caption_reserved_height: int = CAPTION_RESERVED_HEIGHT) -> dict[str, float]:
-    left_rgba = _subject_zone(left, caption_reserved_height)
-    right_rgba = _subject_zone(right, caption_reserved_height)
-    visible = 0
-    rgb_delta = 0.0
-    alpha_delta = 0.0
-    for left_pixel, right_pixel in zip(pixel_data(left_rgba), pixel_data(right_rgba)):
-        left_alpha = left_pixel[3]
-        right_alpha = right_pixel[3]
-        if left_alpha <= 24 and right_alpha <= 24:
-            continue
-        visible += 1
-        rgb_delta += (
-            abs(left_pixel[0] - right_pixel[0])
-            + abs(left_pixel[1] - right_pixel[1])
-            + abs(left_pixel[2] - right_pixel[2])
-        ) / (255 * 3)
-        alpha_delta += abs(left_alpha - right_alpha) / 255
+    left_arr = np.asarray(_subject_zone(left, caption_reserved_height)).astype(np.int32)
+    right_arr = np.asarray(_subject_zone(right, caption_reserved_height)).astype(np.int32)
+    left_alpha = left_arr[..., 3]
+    right_alpha = right_arr[..., 3]
+    visible_mask = (left_alpha > 24) | (right_alpha > 24)
+    visible = int(visible_mask.sum())
     if not visible:
         return {"rgb": 0.0, "alpha": 0.0}
-    return {"rgb": rgb_delta / visible, "alpha": alpha_delta / visible}
+    rgb_diff = (
+        np.abs(left_arr[..., 0] - right_arr[..., 0])
+        + np.abs(left_arr[..., 1] - right_arr[..., 1])
+        + np.abs(left_arr[..., 2] - right_arr[..., 2])
+    ) / (255 * 3)
+    alpha_diff = np.abs(left_alpha - right_alpha) / 255
+    return {
+        "rgb": float(rgb_diff[visible_mask].sum() / visible),
+        "alpha": float(alpha_diff[visible_mask].sum() / visible),
+    }
 
 
 def _component_count_for_frame(frame: Image.Image, caption_reserved_height: int = CAPTION_RESERVED_HEIGHT) -> int:
@@ -2841,7 +2875,7 @@ def _bbox_has_visible_alpha(
     if x1 <= x0 or y1 <= y0:
         return False
     alpha = zone.crop((x0, y0, x1, y1)).getchannel("A")
-    visible = sum(1 for value in pixel_data(alpha) if value > 24)
+    visible = int((np.asarray(alpha) > 24).sum())
     return visible >= max(32, int(component_area * 0.28))
 
 
@@ -2946,7 +2980,7 @@ def continuity_qc(
         areas.append(area)
         centers.append(center)
         caption_zone = frame.convert("RGBA").crop((0, max(0, frame.height - caption_reserved_height), frame.width, frame.height))
-        caption_alpha = sum(1 for value in pixel_data(caption_zone.getchannel("A")) if value > 24)
+        caption_alpha = int((np.asarray(caption_zone.getchannel("A")) > 24).sum())
         caption_zone_ratios.append(caption_alpha / max(1, caption_zone.width * caption_zone.height))
 
     deltas = [
@@ -3111,10 +3145,11 @@ def quantize_gif_frame_with_transparency(frame: Image.Image, colors: int) -> Ima
     rgb.paste((255, 255, 255), mask=transparent_mask)
     palette_colors = max(2, min(255, colors) - 1)
     quantized = rgb.quantize(colors=palette_colors, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE)
-    transparent_data = list(pixel_data(transparent_mask))
-    shifted_data = [0 if transparent_data[index] else min(255, value + 1) for index, value in enumerate(pixel_data(quantized))]
+    transparent_arr = np.asarray(transparent_mask)
+    quantized_arr = np.asarray(quantized).astype(np.int32)
+    shifted_arr = np.where(transparent_arr > 0, 0, np.minimum(255, quantized_arr + 1)).astype(np.uint8)
     paletted = Image.new("P", rgba.size)
-    paletted.putdata(shifted_data)
+    paletted.putdata(shifted_arr.reshape(-1).tolist())
     palette = [255, 255, 255] + (quantized.getpalette() or [])[: 3 * 255]
     palette.extend([0] * (768 - len(palette)))
     paletted.putpalette(palette[:768])
@@ -3251,15 +3286,14 @@ def require_source_images_for_entries(source_dir: Path, image_paths: list[Path],
 
 def remove_light_background(image: Image.Image, threshold: int = 248) -> Image.Image:
     rgba = image.convert("RGBA")
-    pixels = []
-    source_pixels = pixel_data(rgba)
-    for red, green, blue, alpha in source_pixels:
-        if alpha and red >= threshold and green >= threshold and blue >= threshold:
-            pixels.append((red, green, blue, 0))
-        else:
-            pixels.append((red, green, blue, alpha))
-    rgba.putdata(pixels)
-    return rgba
+    arr = np.array(rgba)
+    red = arr[..., 0]
+    green = arr[..., 1]
+    blue = arr[..., 2]
+    alpha = arr[..., 3]
+    light = (alpha > 0) & (red >= threshold) & (green >= threshold) & (blue >= threshold)
+    arr[..., 3] = np.where(light, 0, alpha)
+    return Image.fromarray(arr, "RGBA")
 
 
 def split_sheet(sheet_path: Path, output_dir: Path, rows: int, cols: int, transparent_light: bool = True) -> list[Path]:
@@ -3872,7 +3906,7 @@ def accept_generated_image(plan_path: Path, index: int, image_path: Path, source
     prompt = prompts[index - 1]
     raw_filename = prompt.get("raw_image_filename")
     if not raw_filename:
-        name = prompt.get("name") or prompt.get("meme_name") or "meme"
+        name = prompt.get("name") or "meme"
         layout = prompt.get("animation_layout") or plan.get("animation", {}).get("source_layout") or DEFAULT_ANIMATION_LAYOUT
         raw_filename = f"{index:02d}-{slug_filename(name)}-{layout}.png"
 
@@ -3884,11 +3918,11 @@ def accept_generated_image(plan_path: Path, index: int, image_path: Path, source
 
     record = {
         "index": index,
-        "name": prompt.get("name") or prompt.get("meme_name") or "",
+        "name": prompt.get("name") or "",
         "source_image": str(image_path),
         "saved_image": str(target),
         "raw_image_filename": raw_filename,
-        "prompt_name": prompt.get("meme_name") or prompt.get("name") or "",
+        "prompt_name": prompt.get("name") or "",
     }
     index_path = target_dir / "generated-index.json"
     if index_path.exists():

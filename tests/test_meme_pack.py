@@ -351,9 +351,9 @@ def test_plan_pack_builds_direct_text_image_prompts():
     assert "For Codex image_gen runs, prefer a pure solid #FF00FF background" in first_prompt
     assert "Key pose 1" in first_prompt and "Key pose 4" in first_prompt
     assert "Claude-inspired warm geometric AI assistant mascot" in first_prompt
-    assert first_prompt_plan["meme_name"] == first_prompt_plan["name"]
-    assert first_prompt_plan["send_scene"] == first_prompt_plan["scene"]
-    assert first_prompt_plan["motion_type"] == first_prompt_plan["motion"]
+    assert first_prompt_plan["name"]
+    assert first_prompt_plan["scene"]
+    assert first_prompt_plan["motion"]
     assert first_prompt_plan["motion_profile"] == "micro"
     assert first_prompt_plan["source_mode"] == "keyposes"
     assert first_prompt_plan["motion_template"] == "soul_offline"
@@ -363,7 +363,7 @@ def test_plan_pack_builds_direct_text_image_prompts():
     assert first_prompt_plan["visual_gag"]
     assert "meme_quality_bar" in plan
     assert "没人用的表情包就是垃圾表情包" in plan["meme_quality_bar"]["principle"]
-    assert first_prompt_plan["sendability_gate"]["reuse_trigger"] == first_prompt_plan["send_scene"]
+    assert first_prompt_plan["sendability_gate"]["reuse_trigger"] == first_prompt_plan["scene"]
     assert first_prompt_plan["sendability_gate"]["creative_hook"] == first_prompt_plan["visual_gag"]
     assert "only cute or decorative" in first_prompt_plan["sendability_gate"]["reject_if"]
     assert "Sendability gate" in first_prompt
@@ -491,7 +491,6 @@ def test_plan_pack_can_request_legacy_16_frame_4x4_motion_sheet():
     assert len(prompt_plan["frame_beats"]) == 16
     assert len(set(prompt_plan["frame_beats"])) > 10
     assert any("in-between" in beat for beat in prompt_plan["frame_beats"])
-    assert prompt_plan["16_frame_beats"] == prompt_plan["frame_beats"]
 
 
 def test_plan_pack_emits_dense_exposure_sheet_prompts():
