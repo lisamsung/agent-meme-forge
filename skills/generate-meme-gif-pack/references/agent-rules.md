@@ -7,8 +7,8 @@
 - Do not ask the image model to draw Chinese text. Visual prompts must say no text, no captions, no labels, no speech bubbles, no UI.
 - Write meme copy locally. Every sticker needs a send scenario and a reuse trigger.
 - Apply the sendability gate: if it is only cute or decorative, rewrite the caption, scene, visual gag, and motion plan before generation.
-- Prefer `source_mode=keyposes`, `keypose_layout=2x2`, `render_frame_count=16`.
-- Treat `2x4` and `4x4` motion sheets as legacy/expert modes because direct full-frame generation often drifts.
+- Default to `source_mode=keyposes`, `keypose_layout=2x2`, `render_frame_count=16` — the robust path that works with any provider. For maximum smoothness, recommend `source_mode=dense_frames` (see `references/dense-frames.md`) when the provider can draw ~8 consistent frames in one sheet.
+- Treat raw `2x4`/`4x4` `motion_sheet` as legacy because pre-drawn frames drift; this does NOT apply to `dense_frames`, which uses the same grids but corrects per-frame size/position drift locally.
 - Raw keypose sheets are intermediate material. Final user handoff is `preview.html`, `named-gifs/*.gif`, and `wechat-submit/main/*.gif`.
 - First 3 stickers are a QC checkpoint, not completion. Do not stop there unless the user requested preview only.
 - Reject raw sheets with text, speech bubbles, brand marks, wrong grid count, tiny face, edge-crossing props, checkerboard transparency, or character drift.

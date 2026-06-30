@@ -45,7 +45,7 @@ Use this structure for each sticker:
 1. “Stylized sticker character based on the uploaded reference image...”
 2. State style, persona, expression, and action.
 3. State sendability gate: real chat trigger, emotional value, creative hook, and why the motion makes the caption funnier.
-4. State source behavior: default `2x2` keypose sheet with 4 stable poses; the local processor renders the final 16-frame GIF.
+4. State source behavior: default `2x2` keypose sheet with 4 stable poses rendered locally into the 16-frame GIF (robust, any provider), or the recommended `dense_frames` path (~8 real frames in one sheet) for maximum smoothness.
 5. State sprite-forge-style sheet constraints: exact grid count, no borders, same identity, same bounding box, same pixel scale, no edge crossing, clear margin.
 6. State constraints: **no text**, no Chinese characters, no labels, no official logo, no brand mark, no speech bubbles, no UI, uncluttered background, full character visible, large readable face, centered composition.
 7. State WeChat readability: must read clearly at 240x240.
@@ -66,9 +66,9 @@ Reject or rewrite if:
 - it depends on private context strangers cannot reuse
 - the pose is polished but does not make the caption funnier
 
-## Keypose-First Rules
+## Source-Mode Rules
 
-Default production uses keyposes, not full freehand animation sheets:
+`keyposes` is the safe default (4 stable poses -> local 16-frame render; works with any provider). For maximum smoothness the **recommended** path is `dense_frames` (~8 real frames in one sheet, locally size- and head-normalized; see `references/dense-frames.md`) when the provider can draw 8 consistent frames. The rules below are for the keypose path:
 
 - default source: `2x2`, exactly 4 key poses
 - alternate keypose strip: `1x4`
@@ -82,7 +82,7 @@ Default production uses keyposes, not full freehand animation sheets:
 - local renderer creates deterministic holds, tiny scale/rotation changes, rebound, and loop closure
 - local renderer also adds template-controlled non-text comic effects through `local_effects`, so image_gen should not invent random one-frame effect props
 - default renderer output: 16 frames at about 150ms/frame
-- direct `4x4` full-frame generation is legacy/expert mode; use it only when keypose rendering cannot express the action
+- raw `2x4`/`4x4` `motion_sheet` (pre-drawn frames with no local size/head normalization) is legacy and often drifts; for full-frame animation prefer `dense_frames`, which draws real frames AND corrects per-frame size/position drift locally
 
 ## Motion Templates
 
@@ -129,7 +129,7 @@ Legacy/expert mode still supports semantic motion sheets, adapted from `generate
 
 The processor now treats QC as a gate, not a suggestion. A raw sheet should pass these checks before it is allowed into a WeChat submission pack:
 
-- exact declared layout: default `2x2`/`1x4` for keyposes, or `2x4`/`4x4` for legacy motion sheets
+- exact declared layout: `2x2`/`1x4` for keyposes, `2x4`/`4x2`/`4x4` for `dense_frames`, or `2x4`/`4x4` for legacy `motion_sheet`
 - every cell has a readable subject
 - no visible checkerboard background
 - true alpha background, or a clean solid `#FF00FF` chroma key fallback

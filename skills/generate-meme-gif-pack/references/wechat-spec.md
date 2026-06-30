@@ -13,7 +13,7 @@ This skill targets WeChat Sticker Open Platform album uploads, not ordinary publ
 - Detail banner PNG: one `750x400`, below `80KB`, no text.
 - Optional reward guide image: one `750x560` JPG, PNG, or GIF when `接受赞赏` is enabled.
 - Optional reward thanks image: one `750x750` JPG, PNG, or GIF when `接受赞赏` is enabled.
-- Submission quality mode: `--quality-mode submission --strict-qc`, defaulting to `source_mode=keyposes`, `keypose_layout=2x2`, and local 16-frame rendering. Use `2x4` or `4x4` motion sheets only as legacy/expert modes when the provider can keep identity, scale, and containment stable.
+- Submission quality mode: `--quality-mode submission --strict-qc`. The CLI default is `source_mode=keyposes`, `keypose_layout=2x2`, local 16-frame rendering (robust, any provider). For maximum smoothness the recommended path is `source_mode=dense_frames` (`2x4`/`4x2` real frames, drift-corrected locally; see `references/dense-frames.md`). Raw `2x4`/`4x4` `motion_sheet` is legacy/expert only.
 
 ## Platform Metadata Review Pitfalls
 
@@ -25,7 +25,7 @@ This skill targets WeChat Sticker Open Platform album uploads, not ordinary publ
 ## Practical Constraints
 
 - Use readable silhouettes. A 240px GIF hides subtle facial acting.
-- Use direct `4x4` motion sheets selectively. They can support larger pose arcs, but they often drift and cost more image-generation effort and GIF bytes; keypose-first remains the default.
+- Raw `4x4` `motion_sheet` (pre-drawn, no local normalization) drifts and costs more image-generation effort and GIF bytes; use it selectively. For full-frame animation prefer `dense_frames` (recommended for smoothness) or `keyposes` (the safe default).
 - Keep text short. Two lines is ideal; three lines is risky.
 - Avoid white or transparent-only banners; the detail page needs a bright, story-like image.
 - Keep a consistent character style across all GIFs.

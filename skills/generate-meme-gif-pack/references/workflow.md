@@ -18,7 +18,9 @@ Run `plan-wizard` or `plan-pack`. Review:
 
 ## 3. Generate
 
-Default production path: one semantic `2x2` no-text keypose sheet per sticker. The processor turns 4 stable poses into a 16-frame GIF with local effects and Chinese captions.
+Default path: one semantic `2x2` no-text keypose sheet per sticker. The processor turns 4 stable poses into a 16-frame GIF with local effects and Chinese captions. This is the robust default and works with any provider.
+
+For maximum smoothness, the **recommended** path is dense real frames (`--source-mode dense_frames`, see `references/dense-frames.md`): the model draws ~8 genuinely different frames in one sheet and the processor size- and head-normalizes and assembles them. It needs a provider that can draw 8 consistent frames in one image (and a few stickers per pack may need regenerating), so keyposes stays the safe default.
 
 Provider split:
 
