@@ -112,6 +112,8 @@ Captions are typeset by the local processor with consistent fonts, sizing, and c
 
 The result: more reliable identity, fewer reroll cycles, predictable WeChat-spec output.
 
+**Smoothest path — dense real frames (recommended).** Decision #1 keeps keyposes as the safe default that runs on any provider. When the image model is strong enough to draw ~8 genuinely different, consistent frames in a single sheet, the `dense_frames` source mode asks for exactly that — and a local pass normalizes every frame to a uniform size and head position, times them, and engineers the loop. It's the recommended path for maximum smoothness (expect a few stickers per pack to need regenerating). See **[dense real frames](skills/generate-meme-gif-pack/references/dense-frames.md)**.
+
 ## WeChat spec defaults
 
 | Asset | Spec |
@@ -147,6 +149,7 @@ tests/                       # pytest suite (run with `pytest -q`)
 
 - [Live product page](https://lisamsung.github.io/agent-meme-forge/)
 - [Skill rules and workflow](skills/generate-meme-gif-pack/SKILL.md)
+- [Dense real frames — recommended for smoothness](skills/generate-meme-gif-pack/references/dense-frames.md)
 - [Example test report](docs/example-test-report.md)
 - [WeChat public-account draft (中文)](docs/wechat-public-account-draft.md)
 - [中文 README](README.zh-CN.md)

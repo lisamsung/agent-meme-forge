@@ -112,6 +112,8 @@ cp -R skills/generate-meme-gif-pack ~/.codex-switcher/skills/
 
 结果：身份更稳定、重生次数更少、微信规格输出可预测。
 
+**最丝滑的路径——密集真帧（推荐）。** 决策 #1 让 keypose 当「任何 provider 都能跑」的安全默认。当图片模型足够强、能在一张 sheet 里画出约 8 张真正不同且一致的连续帧时，`dense_frames` 模式就让它这么画——再由本地一道工序把每帧统一到相同尺寸和头部位置、排好时序、做好首尾闭合。这是**追求最丝滑时的推荐路径**（每个包可能有几张要重生）。详见 **[密集真帧](skills/generate-meme-gif-pack/references/dense-frames.md)**。
+
 ## 微信规格默认
 
 | 资源 | 规格 |
@@ -147,6 +149,7 @@ tests/                       # pytest 套件（`pytest -q`）
 
 - [产品页](https://lisamsung.github.io/agent-meme-forge/)
 - [Skill 规则和工作流](skills/generate-meme-gif-pack/SKILL.md)
+- [密集真帧——追求丝滑的推荐路径](skills/generate-meme-gif-pack/references/dense-frames.md)
 - [样例测试报告](docs/example-test-report.md)
 - [微信公众号宣传稿](docs/wechat-public-account-draft.md)
 - [English README](README.md)
