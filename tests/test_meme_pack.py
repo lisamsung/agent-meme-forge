@@ -1718,6 +1718,16 @@ def test_wrap_text_keeps_long_chinese_copy_inside_canvas():
     assert all(lines)
 
 
+def test_default_font_is_bundled_with_its_license():
+    meme_pack = load_module()
+    font_path = Path(meme_pack.find_default_font())
+
+    assert font_path == meme_pack.BUNDLED_FONT
+    assert font_path.is_file()
+    assert (font_path.parent / "OFL.txt").is_file()
+    assert meme_pack._text_size("收到", meme_pack._font(str(font_path), 24))[0] > 0
+
+
 def test_caption_layout_treats_manual_breaks_as_soft_for_short_copy():
     meme_pack = load_module()
 
@@ -1746,7 +1756,7 @@ def test_caption_layout_moves_short_copy_closer_to_subject():
     captioned = meme_pack.draw_caption(Image.new("RGBA", (240, 240), (0, 0, 0, 0)), text, font_path)
 
     assert reserved <= meme_pack.caption_text_height(lines, font) + 8
-    assert captioned.getbbox()[1] <= 189
+    assert captioned.getbbox()[1] <= 192
 
 
 def test_wrap_text_truncates_extreme_copy_to_fit_canvas():

@@ -4,6 +4,8 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-black.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
+[![CI](https://github.com/lisamsung/agent-meme-forge/actions/workflows/ci.yml/badge.svg)](https://github.com/lisamsung/agent-meme-forge/actions/workflows/ci.yml)
+[![GitHub release](https://img.shields.io/github/v/release/lisamsung/agent-meme-forge)](https://github.com/lisamsung/agent-meme-forge/releases/latest)
 [![Codex Skill](https://img.shields.io/badge/codex-skill-ff4f64.svg)](skills/generate-meme-gif-pack/SKILL.md)
 [![中文 README](https://img.shields.io/badge/README-中文-green.svg)](README.zh-CN.md)
 [![Live demo](https://img.shields.io/badge/demo-GitHub%20Pages-2563eb.svg)](https://lisamsung.github.io/agent-meme-forge/)
@@ -66,7 +68,9 @@ Under the hood:
 ## Quickstart
 
 ```bash
-# 1. install
+# 1. clone and install
+git clone https://github.com/lisamsung/agent-meme-forge.git
+cd agent-meme-forge
 python3 -m venv .venv && . .venv/bin/activate
 pip install -e '.[dev]'
 
@@ -153,14 +157,20 @@ tests/                       # pytest suite (run with `pytest -q`)
 - [Example test report](docs/example-test-report.md)
 - [WeChat public-account draft (中文)](docs/wechat-public-account-draft.md)
 - [中文 README](README.zh-CN.md)
+- [Changelog](CHANGELOG.md)
+- [Release process](docs/RELEASING.md)
 
-## Status & contributing
+## Status and contributing
 
 - Test suite: `pytest -q` (covers WeChat size constraints, keypose planning, motion-template rendering, continuity QC, prop-flicker / face-drift gates, sheet splitting, caption layout, and full submission-pack structure).
 - Verified end-to-end on four sample packs: 24 × `科研打工人`, 16 × `码农`, 18 × `都市丽人` (self-use), and a 24-pack of an original AI mascot in `2×4` strict-QC mode.
 - WeChat platform rules can change at any time — please re-check the official help center before commercial submission.
 
-Issues and PRs welcome, especially: new motion templates, persona libraries, or local effects.
+Issues and pull requests are welcome, especially for new motion templates,
+persona libraries, local effects, and reproducible QC improvements. Read
+[CONTRIBUTING.md](CONTRIBUTING.md) before proposing a substantial change. Usage
+questions belong in [GitHub Discussions](https://github.com/lisamsung/agent-meme-forge/discussions),
+and vulnerabilities should follow the private process in [SECURITY.md](SECURITY.md).
 
 ## Image rights & content review
 
@@ -168,4 +178,6 @@ If your reference image is a real person, you must own the rights or have explic
 
 ## License
 
-[MIT](LICENSE)
+Project code is [MIT licensed](LICENSE). The bundled ZCOOL KuaiLe font is
+distributed under the SIL Open Font License 1.1; see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

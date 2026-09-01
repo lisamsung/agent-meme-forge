@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Usage questions and ideas
+    url: https://github.com/lisamsung/agent-meme-forge/discussions
+    about: Ask for setup help or discuss an idea before turning it into a scoped issue.
+  - name: Security report
+    url: https://github.com/lisamsung/agent-meme-forge/security/advisories/new
+    about: Report suspected vulnerabilities privately. Do not disclose them in a public issue.

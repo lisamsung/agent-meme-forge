@@ -1,0 +1,70 @@
+name: Bug report
+description: Report a reproducible failure in planning, rendering, QC, or export.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: checkboxes
+    attributes:
+      label: Before filing
+      options:
+        - label: I searched existing issues for the same problem.
+          required: true
+        - label: I removed API keys, signed URLs, and private reference images.
+          required: true
+        - label: I can reproduce this on the latest release or `main`.
+          required: true
+
+  - type: input
+    attributes:
+      label: Version
+      description: Release tag or full commit SHA.
+      placeholder: v0.1.0
+    validations:
+      required: true
+
+  - type: input
+    attributes:
+      label: Environment
+      description: Operating system, Python version, and installation method.
+      placeholder: macOS 15, Python 3.12, editable install
+    validations:
+      required: true
+
+  - type: dropdown
+    attributes:
+      label: Source mode
+      options:
+        - keyposes
+        - dense_frames
+        - not applicable
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Reproduction steps
+      description: Include the smallest command and sanitized input structure that reproduces the bug.
+      placeholder: |
+        1. Run ...
+        2. Use ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Actual behavior and sanitized output
+      description: Paste the traceback, QC failure, or output metadata. Do not paste credentials or private images.
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Additional context
+      description: Add rights-safe screenshots, reduced fixtures, or links to related issues when useful.

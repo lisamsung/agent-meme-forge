@@ -11,7 +11,8 @@ Use this only after the pack has passed local QC and the user explicitly asks to
 Example:
 
 ```bash
-/Users/shanxingjun/.codex-switcher/skills/playwright/scripts/playwright_cli.sh open \
+export CODEX_SKILLS_DIR="${CODEX_SKILLS_DIR:-$HOME/.codex-switcher/skills}"
+"$CODEX_SKILLS_DIR/playwright/scripts/playwright_cli.sh" open \
   https://sticker.weixin.qq.com \
   --headed \
   --browser msedge \
@@ -52,7 +53,7 @@ Stop for user-owned boundaries: QR login, CAPTCHA, real-name verification, payme
 Use Playwright `setInputFiles`, not OS file-picker automation. Inspect file inputs first because indices can drift:
 
 ```bash
-/Users/shanxingjun/.codex-switcher/skills/playwright/scripts/playwright_cli.sh run-code \
+"$CODEX_SKILLS_DIR/playwright/scripts/playwright_cli.sh" run-code \
 'async (page) => await page.$$eval("input[type=file]", inputs => inputs.map((i, idx) => ({idx, accept: i.accept, multiple: i.multiple})))'
 ```
 

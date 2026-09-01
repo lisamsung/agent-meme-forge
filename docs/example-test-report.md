@@ -4,7 +4,7 @@
 
 ## Test Environment
 
-- Project path: `/Users/shanxingjun/vibecoding/codex/projects/agent-meme-forge`
+- Project checkout: public `agent-meme-forge` repository
 - Command family: `python skills/generate-meme-gif-pack/scripts/meme_pack.py build-pack`
 - Output root: `output/examples/`
 - Verification date: 2026-04-25
@@ -98,4 +98,4 @@ Review 后补充验证：
 - GitHub Pages 的中文文档按钮改为 GitHub README 链接，不再解析到站点根目录导致 404。
 - 新增 QC 门禁：假透明、边缘出格、bbox 漂移、单图 bounce 在投稿模式会被明确拒绝。
 
-最新自动化验证：`pytest -q` 共 41 项通过。
+v0.1.0 发布门禁共收集 86 项自动化测试；当前通过状态以仓库 CI 为准。

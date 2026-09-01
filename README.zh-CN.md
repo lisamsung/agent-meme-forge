@@ -4,6 +4,8 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-black.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
+[![CI](https://github.com/lisamsung/agent-meme-forge/actions/workflows/ci.yml/badge.svg)](https://github.com/lisamsung/agent-meme-forge/actions/workflows/ci.yml)
+[![GitHub release](https://img.shields.io/github/v/release/lisamsung/agent-meme-forge)](https://github.com/lisamsung/agent-meme-forge/releases/latest)
 [![Codex Skill](https://img.shields.io/badge/codex-skill-ff4f64.svg)](skills/generate-meme-gif-pack/SKILL.md)
 [![English README](https://img.shields.io/badge/README-English-green.svg)](README.md)
 [![Live demo](https://img.shields.io/badge/demo-GitHub%20Pages-2563eb.svg)](https://lisamsung.github.io/agent-meme-forge/)
@@ -66,7 +68,9 @@ output/my-pack/
 ## 快速开始
 
 ```bash
-# 1. 安装
+# 1. 克隆并安装
+git clone https://github.com/lisamsung/agent-meme-forge.git
+cd agent-meme-forge
 python3 -m venv .venv && . .venv/bin/activate
 pip install -e '.[dev]'
 
@@ -153,6 +157,8 @@ tests/                       # pytest 套件（`pytest -q`）
 - [样例测试报告](docs/example-test-report.md)
 - [微信公众号宣传稿](docs/wechat-public-account-draft.md)
 - [English README](README.md)
+- [版本记录](CHANGELOG.md)
+- [发布流程](docs/RELEASING.md)
 
 ## 开发与贡献
 
@@ -160,7 +166,10 @@ tests/                       # pytest 套件（`pytest -q`）
 - 已用四组样例端到端验证：24 × `科研打工人`、16 × `码农`、18 × `都市丽人`（自用）、24 × 原创 AI 吉祥物 `2×4` strict-QC 投稿模式。
 - 微信平台规格随时可能变化，正式上传前请复核官方帮助中心。
 
-欢迎 issue 和 PR，尤其是：新动作模板、新人设库、新本地特效。
+欢迎 issue 和 PR，尤其是新动作模板、新人设库、新本地特效和可复现的
+QC 改进。提交较大改动前请先读 [CONTRIBUTING.md](CONTRIBUTING.md)。使用问题请发到
+[GitHub Discussions](https://github.com/lisamsung/agent-meme-forge/discussions)，
+安全问题请按 [SECURITY.md](SECURITY.md) 的私密渠道报告。
 
 ## 肖像与内容审核
 
@@ -168,4 +177,5 @@ tests/                       # pytest 套件（`pytest -q`）
 
 ## License
 
-[MIT](LICENSE)
+项目代码采用 [MIT License](LICENSE)。随项目分发的站酷快乐体采用 SIL Open Font
+License 1.1，详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

@@ -6,6 +6,10 @@
 
 ## 当前状态
 
+- **v0.1.0 正式开源版本（2026-09-01）**：补齐 `CHANGELOG.md`、
+  `CONTRIBUTING.md`、行为准则、安全与支持策略、Issue/PR 模板、CODEOWNERS、
+  多 Python 版本 CI 和可复核的发布流程；GitHub Release 与源码归档以
+  `v0.1.0` 标签为准。
 - 仓库骨架已建立。
 - Skill 文档和 reference 文档已建立。
 - `meme_pack.py` 已实现基础处理流程：梗库、motion-sheet prompt 计划、contact sheet 切图、sheet 逐帧读取、motion-sheet QC、组件清理、统一尺度、中文文案排版、GIF 生成、微信投稿包导出、manifest/qc_report 生成。
@@ -28,11 +32,12 @@
 ## 开发入口
 
 ```bash
-cd /Users/shanxingjun/vibecoding/codex/projects/agent-meme-forge
+git clone https://github.com/lisamsung/agent-meme-forge.git
+cd agent-meme-forge
 python3 -m venv .venv
 . .venv/bin/activate
-pip install -e '.[dev]'
-pytest -q
+python -m pip install -e '.[dev]'
+python -m pytest -q
 ```
 
 ## 主要路径

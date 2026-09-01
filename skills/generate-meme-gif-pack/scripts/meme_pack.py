@@ -43,7 +43,10 @@ GENERATED_FILES = [
     Path("wechat-submit") / "banner.png",
 ]
 
+SKILL_ROOT = Path(__file__).resolve().parents[1]
+BUNDLED_FONT = SKILL_ROOT / "assets" / "fonts" / "ZCOOLKuaiLe-Regular.ttf"
 FONT_CANDIDATES = [
+    str(BUNDLED_FONT),
     "/System/Library/Fonts/Hiragino Sans GB.ttc",
     "/System/Library/Fonts/PingFang.ttc",
     "/System/Library/Fonts/STHeiti Light.ttc",
@@ -1668,9 +1671,15 @@ def _caption_text_candidates(text: str) -> list[str]:
     return unique or [""]
 
 
-def _truncate_line_to_width(text: str, font: ImageFont.ImageFont, max_width: int) -> str:
+def _truncate_line_to_width(
+    text: str,
+    font: ImageFont.ImageFont,
+    max_width: int,
+    *,
+    require_ellipsis: bool = False,
+) -> str:
     ellipsis = "…"
-    if _text_size(text, font)[0] <= max_width:
+    if not require_ellipsis and _text_size(text, font)[0] <= max_width:
         return text
     if _text_size(ellipsis, font)[0] > max_width:
         return ""
@@ -1690,7 +1699,7 @@ def _truncate_lines_to_height(lines: list[str], font: ImageFont.ImageFont, max_w
         return lines
     trimmed = lines[:max_lines]
     overflow = "".join(lines[max_lines - 1 :])
-    trimmed[-1] = _truncate_line_to_width(overflow, font, max_width)
+    trimmed[-1] = _truncate_line_to_width(overflow, font, max_width, require_ellipsis=True)
     return trimmed
 
 
