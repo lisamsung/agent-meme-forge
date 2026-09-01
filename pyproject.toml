@@ -8,10 +8,24 @@ version = "0.1.0"
 description = "Codex skill and deterministic processor for WeChat-ready animated meme GIF packs."
 readme = "README.md"
 requires-python = ">=3.10"
+keywords = ["codex", "gif", "meme", "stickers", "wechat"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Multimedia :: Graphics",
+]
 dependencies = [
   "Pillow>=10.0",
   "numpy>=1.26",
 ]
+
+[project.urls]
+Homepage = "https://lisamsung.github.io/agent-meme-forge/"
+Repository = "https://github.com/lisamsung/agent-meme-forge"
+Issues = "https://github.com/lisamsung/agent-meme-forge/issues"
+Changelog = "https://github.com/lisamsung/agent-meme-forge/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 dev = [

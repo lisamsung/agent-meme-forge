@@ -1,0 +1,48 @@
+name: Feature request
+description: Propose a scoped improvement to the public skill or processor.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: checkboxes
+    attributes:
+      label: Before proposing
+      options:
+        - label: I searched existing issues and discussions for this proposal.
+          required: true
+        - label: This belongs in the public skill or deterministic processor, not a private service.
+          required: true
+
+  - type: textarea
+    attributes:
+      label: Problem
+      description: Describe the concrete user or maintainer problem, not only the desired implementation.
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Proposed outcome
+      description: What observable behavior should change?
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Sendability or maintenance case
+      description: Explain the chat reuse case, quality improvement, or maintenance cost this addresses.
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Alternatives considered
+
+  - type: dropdown
+    attributes:
+      label: Contribution
+      options:
+        - I can submit a pull request
+        - I can help test or supply rights-safe fixtures
+        - I am proposing only
+    validations:
+      required: true
