@@ -17,6 +17,8 @@ First public release.
   phone-size visual readability.
 - Deterministic 4-keypose-to-16-frame renderer with local effects and Chinese
   caption layout.
+- Bundled OFL-licensed ZCOOL KuaiLe font for reproducible Chinese caption layout
+  across macOS and Linux.
 - Dense real-frame mode with sheet slicing, scale normalization, head anchoring,
   timing, and continuity checks.
 - QC gates for transparency, edge contact, bounding-box drift, prop flicker,

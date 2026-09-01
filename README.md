@@ -178,4 +178,6 @@ If your reference image is a real person, you must own the rights or have explic
 
 ## License
 
-[MIT](LICENSE)
+Project code is [MIT licensed](LICENSE). The bundled ZCOOL KuaiLe font is
+distributed under the SIL Open Font License 1.1; see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

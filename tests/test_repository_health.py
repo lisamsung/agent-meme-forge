@@ -13,11 +13,14 @@ def test_open_source_maintenance_files_are_present():
         "LICENSE",
         "SECURITY.md",
         "SUPPORT.md",
+        "THIRD_PARTY_NOTICES.md",
         ".github/CODEOWNERS",
         ".github/PULL_REQUEST_TEMPLATE.md",
         ".github/ISSUE_TEMPLATE/bug_report.yml",
         ".github/ISSUE_TEMPLATE/feature_request.yml",
         ".github/workflows/ci.yml",
+        "skills/generate-meme-gif-pack/assets/fonts/OFL.txt",
+        "skills/generate-meme-gif-pack/assets/fonts/ZCOOLKuaiLe-Regular.ttf",
     ]
 
     missing = [path for path in required if not (ROOT / path).is_file()]

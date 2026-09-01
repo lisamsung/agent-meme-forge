@@ -177,4 +177,5 @@ QC 改进。提交较大改动前请先读 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## License
 
-[MIT](LICENSE)
+项目代码采用 [MIT License](LICENSE)。随项目分发的站酷快乐体采用 SIL Open Font
+License 1.1，详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
